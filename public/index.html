@@ -1,0 +1,1579 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Agent Cost Lens contributors. MIT License. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Cost Lens</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <script src="chart.umd.min.js"></script>
+  <style>
+    @font-face{font-family:"Sansita Swashed";src:url("fonts/SansitaSwashed-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0d0d0d;--bg-card:#1a1a1a;--bg-surface:#222;--bg-hover:#2a2a2a;--border:#2e2e2e;--accent:#ffb1ee;--accent-subtle:rgba(255,177,238,0.1);--accent-glow:rgba(255,177,238,0.25);--text:#ededed;--text-secondary:#a0a0a0;--text-muted:#666;--font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--radius:12px;--radius-sm:8px}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;min-height:100dvh}
+    .app{max-width:1440px;margin:0 auto;padding:20px 16px}
+    @media(min-width:768px){.app{padding:28px 32px}}
+    @media(min-width:1024px){.app{padding:32px 40px}}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{opacity:.8}
+    h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
+    @media(min-width:768px){h1{font-size:26px}}
+    h2{font-size:15px;font-weight:600;color:var(--text)}
+    h3{font-size:14px;font-weight:600;margin:16px 0 8px;color:var(--text)}
+    .muted{color:var(--text-muted);font-size:13px;line-height:1.5}
+
+    .menu-bar{display:flex;gap:4px;margin:16px 0;background:var(--bg-card);border-radius:var(--radius-sm);padding:4px;border:1px solid var(--border)}
+    .menu-button{border:0;background:transparent;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500;font-size:13px;color:var(--text-muted);transition:all .15s ease}
+    .menu-button.active{background:var(--accent-subtle);color:var(--accent)}
+    .menu-button:not(.active):hover{color:var(--text-secondary);background:var(--bg-hover)}
+
+    .period-tabs{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;margin:0 0 16px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    .period-tabs::-webkit-scrollbar{display:none}
+    .period-tab{flex-shrink:0;border:1px solid var(--border);background:transparent;border-radius:999px;padding:6px 14px;cursor:pointer;font-size:13px;color:var(--text-secondary);transition:all .15s ease;white-space:nowrap}
+    .period-tab:hover{background:var(--bg-hover);color:var(--text)}
+    .period-tab.active{background:var(--accent);color:#0d0d0d;border-color:var(--accent);font-weight:600}
+
+    .header-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border-radius:var(--radius);overflow:hidden;margin:0 0 24px;border:1px solid var(--border)}
+    @media(min-width:640px){.header-bar{grid-template-columns:repeat(8,1fr)}}
+    .header-cell{background:var(--bg-card);padding:12px 6px;text-align:center}
+    @media(min-width:640px){.header-cell{padding:14px 8px}}
+    .header-cell .value{font-size:16px;font-weight:700;line-height:1.3;font-family:var(--font-mono)}
+    @media(min-width:640px){.header-cell .value{font-size:20px}}
+    .header-cell .label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)}
+    @media(min-width:640px){.header-cell .label{font-size:11px}}
+
+    .panel-grid{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:24px}
+    @media(min-width:768px){.panel-grid{grid-template-columns:1fr 1fr}}
+    .panel{background:var(--bg-card);border-radius:var(--radius);padding:16px;border:1px solid var(--border)}
+    .panel-title-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+    .panel-title-row h2{margin:0;font-size:15px}
+
+    .grid-2{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:768px){.grid-2{grid-template-columns:1fr 1fr}}
+    .section-grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:768px){.section-grid{grid-template-columns:1fr 1fr}}
+    .details{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:12px 0 16px}
+    @media(min-width:640px){.details{grid-template-columns:repeat(4,1fr)}}
+
+    .mini{background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:10px}
+    .mini .value{font-size:16px;font-weight:600;margin-top:4px;font-family:var(--font-mono)}
+    @media(min-width:640px){.mini .value{font-size:18px}}
+    .mini .label{color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+
+    .stats-bar{display:flex;flex-wrap:nowrap;overflow-x:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin:12px 0 16px;-webkit-overflow-scrolling:touch}
+    .stats-item{flex:1 1 0;min-width:90px;padding:14px 8px;text-align:center;border-right:1px solid var(--border)}
+    .stats-item:last-child{border-right:0}
+    .stats-label{color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+    .stats-value{font-family:var(--font-mono);font-size:18px;font-weight:700;margin-top:4px;line-height:1.3}
+    .stats-value.cost{color:var(--accent)}
+
+    .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+    table{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
+    @media(min-width:768px){table{min-width:0}}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;white-space:nowrap}
+    th{color:var(--text-secondary);font-weight:600;background:var(--bg-surface);font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+    tr.clickable{cursor:pointer}
+    tr.clickable:hover{background:var(--bg-surface)}
+
+    .request{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    @media(min-width:1024px){.request{max-width:400px}}
+    .mono{font-family:var(--font-mono);font-size:12px}
+    .brand-title{font-family:"Sansita Swashed",var(--font);font-size:32px;font-weight:700;line-height:1;letter-spacing:0;color:var(--accent)}
+
+    .bar-table{width:100%;border-collapse:collapse;font-size:13px;min-width:auto}
+    .bar-table th,.bar-table td{padding:5px 6px;border-bottom:1px solid var(--border);white-space:nowrap}
+    .bar-table thead th{background:transparent;color:var(--text-muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;padding:4px 6px 8px}
+    .bar-track{display:block;width:100%;height:6px;background:var(--bg-surface);border-radius:999px;overflow:hidden;min-width:40px}
+    .bar-fill{display:block;height:100%;background:linear-gradient(90deg,#22d3ee,#facc15,#f97316,#ef4444);border-radius:999px;min-width:2px;transition:width .3s ease}
+    .bar-label{font-family:var(--font-mono);font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    @media(min-width:640px){.bar-label{max-width:180px}}
+    .bar-num{font-family:var(--font-mono);font-size:12px;text-align:right;white-space:nowrap}
+    .bar-num.cost{font-weight:600;color:var(--accent)}
+    td.num, th.num{text-align:right;font-family:var(--font-mono);font-size:12px}
+    .evidence-cell{white-space:normal;min-width:220px;color:var(--text-secondary);line-height:1.35}
+    .bar-cell{padding:2px 6px!important;vertical-align:middle}
+
+    select,input[type="text"],input:not([type]){padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface);color:var(--text);font-size:13px;font-family:var(--font);width:100%;outline:none;transition:border-color .15s ease}
+    select:focus,input:focus{border-color:var(--accent)}
+    select option{background:var(--bg-card);color:var(--text)}
+    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .toolbar > *{flex:1 1 auto;min-width:0}
+    @media(min-width:640px){.toolbar > *{flex:initial}}
+    .toolbar select{min-width:0}
+    @media(min-width:640px){.toolbar select{min-width:140px}}
+    .toolbar input{min-width:0}
+    @media(min-width:640px){.toolbar input{min-width:200px}}
+    .toolbar button{flex:0 0 auto}
+
+    button{cursor:pointer;font-family:var(--font)}
+    .btn{border:1px solid var(--border);background:var(--bg-surface);color:var(--text);border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;transition:all .15s ease;white-space:nowrap}
+    .btn:hover{background:var(--bg-hover);border-color:var(--text-muted)}
+    .btn-sm{padding:4px 10px;font-size:12px}
+    .btn-primary{background:var(--accent);color:#0d0d0d;border-color:var(--accent);font-weight:600}
+    .btn-primary:hover{opacity:.9;background:var(--accent)}
+    .btn-accent-outline{background:var(--bg-surface);color:var(--accent);border-color:var(--accent);font-weight:600}
+    .btn-accent-outline:hover{background:var(--accent-subtle);border-color:var(--accent);color:var(--accent)}
+    .btn:disabled{opacity:.4;cursor:default}
+
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent-subtle);color:var(--accent);font-size:12px;margin:2px 4px 2px 0;border:1px solid rgba(255,177,238,0.15)}
+
+    .message-block{max-width:100%;white-space:pre-wrap;line-height:1.5;font-size:13px;word-break:break-word}
+    .message-label{color:var(--text-secondary);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+
+    .turn-card{border:1px solid var(--border);border-radius:var(--radius);margin:12px 0;overflow:hidden;background:var(--bg-card)}
+    .turn-header{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border)}
+    .turn-section{padding:12px;border-bottom:1px solid var(--border)}
+    .turn-section:last-child{border-bottom:0}
+    .turn-section-title{font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em}
+
+    .step-card{border:1px solid var(--border);border-radius:10px;padding:10px;margin:8px 0;background:var(--bg-surface)}
+    .step-meta{display:flex;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px;color:var(--text-secondary);font-size:11px;font-family:var(--font-mono)}
+    .step-meta span{white-space:nowrap}
+
+    details.turn-card,details.step-card{display:block}
+    details.turn-card>summary,details.step-card>summary{list-style:none;cursor:pointer}
+    details.turn-card>summary::-webkit-details-marker,details.step-card>summary::-webkit-details-marker{display:none}
+
+    .summary-row{display:flex;gap:12px;align-items:flex-start;padding:12px;background:var(--bg-card);border-bottom:1px solid var(--border)}
+    details:not([open])>.summary-row{border-bottom:0}
+    .summary-main{min-width:0;flex:1}
+    .summary-title{font-weight:600;font-size:13px;margin-bottom:4px;color:var(--text)}
+    .summary-preview{color:var(--text-secondary);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .summary-meta{color:var(--text-muted);font-size:11px;text-align:right;white-space:nowrap;flex-shrink:0;max-width:40%;overflow:hidden;text-overflow:ellipsis}
+    @media(min-width:640px){.summary-meta{max-width:none;font-size:12px}}
+    .summary-caret::before{content:"▸";display:inline-block;margin-right:6px;color:var(--accent);transition:transform .15s ease}
+    details[open]>.summary-row .summary-caret::before{transform:rotate(90deg)}
+
+    .search-panel .panel:first-child{margin-bottom:16px}
+    .search-panel .toolbar{flex-wrap:nowrap;overflow-x:auto}
+    .search-panel .toolbar input{min-width:260px}
+    .search-panel .toolbar select{min-width:150px}
+
+    .empty-state{text-align:center;padding:32px 16px;color:var(--text-muted)}
+
+    .wide-card{grid-column:1/-1}
+    .metric-table td,.metric-table th{white-space:nowrap}
+
+    .card,.panel{background:var(--bg-card);border-radius:var(--radius);padding:16px;border:1px solid var(--border)}
+    .label{color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+    .value{font-size:22px;font-weight:700;margin-top:4px;font-family:var(--font-mono)}
+    .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0 20px}
+    @media(min-width:640px){.cards{grid-template-columns:repeat(3,1fr)}}
+    @media(min-width:1024px){.cards{grid-template-columns:repeat(5,1fr);gap:16px}}
+    canvas{max-height:360px;border-radius:var(--radius-sm);background:var(--bg-surface)}
+
+    .meta-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px;min-height:42px}
+    .meta-bar .muted{font-size:12px}
+
+    @media(max-width:480px){
+      .header-bar{grid-template-columns:repeat(2,1fr)}
+      .header-cell .value{font-size:14px}
+      .summary-meta{display:none}
+    }
+
+    .impact-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;line-height:1.4;flex-shrink:0}
+    .impact-high{background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.25)}
+    .impact-medium{background:rgba(250,204,21,0.15);color:#facc15;border:1px solid rgba(250,204,21,0.25)}
+    .impact-low{background:rgba(34,211,238,0.15);color:#22d3ee;border:1px solid rgba(34,211,238,0.25)}
+    .optimize-item:last-child{border-bottom:0!important}
+    .optimize-item:hover{background:var(--bg-surface);margin:0 -8px;padding:10px 8px!important;border-radius:8px}
+    .ratio-high{color:#ef4444;font-weight:600}
+    .ratio-medium{color:#f97316;font-weight:600}
+    .ratio-low{color:#facc15;font-weight:600}
+
+    dialog.modal-dialog{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);max-width:95vw;max-height:88vh;width:1024px;padding:0;overflow:hidden;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0}
+    dialog.modal-dialog .modal-body{overflow-x:hidden}
+    dialog.modal-dialog .mono{font-size:11px}
+    dialog.modal-dialog .muted{font-size:12px}
+    dialog.modal-dialog .message-block{font-size:12px}
+    dialog.modal-dialog table{min-width:0;font-size:12px}
+    dialog.modal-dialog th,dialog.modal-dialog td{padding:5px 8px}
+    dialog.modal-dialog::backdrop{background:rgba(0,0,0,0.65)}
+    .modal-header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-card);z-index:1}
+    .modal-header h2{margin:0;font-size:15px}
+    .modal-close{background:transparent;border:0;color:var(--text-secondary);font-size:22px;cursor:pointer;padding:2px 8px;border-radius:4px;line-height:1}
+    .modal-close:hover{color:var(--text);background:var(--bg-hover)}
+    .modal-body{padding:16px 20px;overflow-y:auto;max-height:calc(88vh - 54px)}
+
+    .subagent-details{border:1px solid var(--border);border-radius:8px;margin:4px 0;overflow:hidden}
+    .subagent-details[open]{background:var(--bg-surface)}
+    .subagent-summary{display:grid;grid-template-columns:auto 1fr repeat(3,auto);gap:12px;align-items:center;padding:8px 12px;cursor:pointer;list-style:none;font-size:13px}
+    .subagent-summary::-webkit-details-marker{display:none}
+    .subagent-summary::before{content:"▸";color:var(--accent);transition:transform .15s ease;font-size:14px}
+    .subagent-details[open]>.subagent-summary::before{transform:rotate(90deg)}
+    .subagent-summary .mono{font-family:var(--font-mono);font-size:12px;color:var(--accent)}
+    .subagent-summary .role{color:var(--text-secondary);font-size:12px}
+    .subagent-summary .num{font-family:var(--font-mono);font-size:12px;text-align:right}
+    .subagent-summary .cost{color:var(--accent);font-weight:600}
+    .burn-summary{grid-template-columns:auto max-content max-content max-content minmax(0,1fr) auto minmax(160px,220px);gap:8px;white-space:nowrap}
+    .burn-header{display:grid;grid-template-columns:auto max-content max-content max-content minmax(0,1fr) auto minmax(160px,220px);gap:8px;padding:0 12px 6px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+    .burn-summary span{min-width:0}
+    .burn-summary .cost{justify-self:end}
+    .burn-project{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+    .burn-high-tags{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;white-space:nowrap;overflow:hidden}
+    .burn-high-tags .impact-badge{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+    .burn-date{color:var(--text-muted);font-family:var(--font-mono);font-size:11px;padding:0 8px}
+    .burn-table{table-layout:fixed;width:100%}
+    .burn-table th:nth-child(2),.burn-table td:nth-child(2){text-align:left}
+    .burn-table th:nth-child(3),.burn-table td:nth-child(3){text-align:right}
+    .reason-label{display:inline-flex;align-items:center;gap:6px;position:relative}
+    .reason-help{display:inline-grid;place-items:center;position:relative;width:16px;height:16px;border:1px solid var(--border);border-radius:50%;color:var(--accent);font-size:11px;line-height:1;cursor:help;outline:none}
+    .reason-popover{display:none}
+    .floating-reason-popover{position:fixed;z-index:9999;width:min(320px,70vw);padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text-secondary);font-size:12px;line-height:1.4;white-space:normal;box-shadow:0 12px 28px rgba(0,0,0,.32);pointer-events:none}
+    .floating-reason-popover[hidden]{display:none}
+    .reason-levels{display:grid;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+    .reason-level{display:grid;grid-template-columns:auto 1fr;gap:6px;align-items:start}
+    .subagent-body{padding:10px 12px 12px;border-top:1px solid var(--border)}
+    .subagent-body .stats-bar{margin:0 0 10px}
+    .turn-subagent{border-color:rgba(52,211,153,0.3);margin-left:28px}
+    .turn-subagent>.summary-row{background:rgba(52,211,153,0.04)}
+    .turn-subagent .summary-title .subagent-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(52,211,153,0.15);color:#34d399;margin-right:6px}
+    .subagent-group{border:1px solid var(--border);border-radius:var(--radius);margin:12px 0 12px 28px;overflow:hidden;background:rgba(52,211,153,0.02)}
+    .subagent-group>summary{list-style:none;cursor:pointer;padding:10px 14px;font-size:13px;font-weight:600;background:var(--bg-surface);border-bottom:1px solid var(--border);color:var(--text-secondary)}
+    .subagent-group>summary::-webkit-details-marker{display:none}
+    .subagent-group>summary::before{content:"▸";display:inline-block;margin-right:8px;color:#34d399;transition:transform .15s ease}
+    .subagent-group[open]>summary::before{transform:rotate(90deg)}
+    .subagent-group>.turn-card{margin:8px 12px;border-color:rgba(52,211,153,0.2)}
+    .subagent-group>.turn-card:last-child{margin-bottom:12px}
+
+    @media print{
+      body{background:#fff;color:#000}
+      .panel,.turn-card,.step-card{border-color:#ddd;background:#fff}
+      .header-cell,.mini{background:#f5f5f5}
+      .bar-fill{background:#000!important}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="meta-bar">
+      <h1 class="brand-title">Agent Cost Lens</h1>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="refreshBtn" class="btn btn-sm" onclick="refreshData()">↻ Refresh Data</button>
+        <div id="meta" class="muted">Loading...</div>
+      </div>
+    </div>
+
+    <div class="menu-bar">
+      <button id="menuStats" class="menu-button active" onclick="switchMainView('stats')">Statistics</button>
+      <button id="menuSearch" class="menu-button" onclick="switchMainView('search')">Detail Search</button>
+      <button id="menuOptimize" class="menu-button" onclick="switchMainView('optimize')">Optimization</button>
+    </div>
+
+    <section id="statsView">
+      <div class="period-tabs">
+        <button class="period-tab active" data-period="today" onclick="switchPeriod('today')">Today</button>
+        <button class="period-tab" data-period="yesterday" onclick="switchPeriod('yesterday')">Yesterday</button>
+        <button class="period-tab" data-period="7days" onclick="switchPeriod('7days')">7 Days</button>
+        <button class="period-tab" data-period="30days" onclick="switchPeriod('30days')">30 Days</button>
+        <button class="period-tab" data-period="thisMonth" onclick="switchPeriod('thisMonth')">This Month</button>
+        <button class="period-tab" data-period="6months" onclick="switchPeriod('6months')">6 Months</button>
+      </div>
+
+      <div class="header-bar" id="headerBar">
+        <div class="header-cell"><div class="value" id="hdrCost">-</div><div class="label">Cost</div></div>
+        <div class="header-cell"><div class="value" id="hdrCalls">-</div><div class="label">Calls</div></div>
+        <div class="header-cell"><div class="value" id="hdrSessions">-</div><div class="label">Sessions</div></div>
+        <div class="header-cell"><div class="value" id="hdrCacheHit">-</div><div class="label">Cache Hit</div></div>
+        <div class="header-cell"><div class="value" id="hdrInput">-</div><div class="label">Input</div></div>
+        <div class="header-cell"><div class="value" id="hdrOutput">-</div><div class="label">Output</div></div>
+        <div class="header-cell"><div class="value" id="hdrCached">-</div><div class="label">Cached</div></div>
+        <div class="header-cell"><div class="value" id="hdrTurns">-</div><div class="label">Turns</div></div>
+      </div>
+
+      <div class="panel-grid" id="panelGrid">
+        <div class="panel" id="panelDaily"></div>
+        <div class="panel" id="panelProject"></div>
+        <div class="panel" id="panelModel"></div>
+        <div class="panel" id="panelTools"></div>
+        <div class="panel" id="panelCommands"></div>
+        <div class="panel" id="panelSkills"></div>
+        <div class="panel wide-card" id="panelSession"></div>
+      </div>
+    </section>
+
+      <section id="searchView" class="search-panel" style="display:none">
+        <div class="panel">
+          <h2>Detail Search</h2>
+          <div class="toolbar" style="margin-top:12px">
+            <select id="sessionProjectFilter"><option value="">All projects</option></select>
+            <select id="sessionDateFilter"><option value="">All dates</option></select>
+            <input id="sessionSearch" placeholder="Search request / skill / tool / command" />
+        </div>
+        <div class="table-wrap" style="margin-top:12px">
+          <table id="sessionTable"></table>
+        </div>
+        <div id="sessionPagination"></div>
+      </div>
+
+      <div class="panel" id="sessionDetailPanel" style="display:none">
+        <div class="panel-title-row">
+          <h2>Session Detail</h2>
+        </div>
+        <div id="sessionDetail"></div>
+      </div>
+    </section>
+
+    <section id="optimizeView" style="display:none">
+      <div class="period-tabs" id="optimizePeriodTabs">
+        <button class="period-tab active" data-optperiod="all" onclick="switchOptimizePeriod('all')">All</button>
+        <button class="period-tab" data-optperiod="today" onclick="switchOptimizePeriod('today')">Today</button>
+        <button class="period-tab" data-optperiod="yesterday" onclick="switchOptimizePeriod('yesterday')">Yesterday</button>
+        <button class="period-tab" data-optperiod="7days" onclick="switchOptimizePeriod('7days')">7 Days</button>
+        <button class="period-tab" data-optperiod="30days" onclick="switchOptimizePeriod('30days')">30 Days</button>
+        <button class="period-tab" data-optperiod="month" onclick="switchOptimizePeriod('month')">This Month</button>
+        <input type="date" id="optDatePicker" onchange="switchOptimizePeriod('custom')" style="flex-shrink:0;width:auto;padding:6px 14px;font-size:13px;font-family:var(--font);border:1px solid var(--border);background:transparent;border-radius:999px;color:var(--text-secondary);cursor:pointer;outline:none">
+        <input type="text" id="optSessionSearch" placeholder="Session ID" oninput="switchOptimizePeriod('session')" style="flex-shrink:0;width:150px;padding:6px 14px;font-size:13px;font-family:var(--font);border:1px solid var(--border);background:transparent;border-radius:999px;color:var(--text-secondary);outline:none">
+        <style>#optDatePicker::-webkit-calendar-picker-indicator{filter:invert(.6);cursor:pointer}#optDatePicker:focus,#optSessionSearch:focus{border-color:var(--accent);color:var(--text)}</style>
+      </div>
+      <div id="optimizeResults"></div>
+    </section>
+
+    <dialog class="modal-dialog" id="sessionDetailDialog">
+      <div class="modal-header">
+        <h2>Session Detail</h2>
+        <button class="modal-close" onclick="document.getElementById('sessionDetailDialog').close()">✕</button>
+      </div>
+      <div class="modal-body" id="sessionDetailContent"></div>
+    </dialog>
+  </div>
+
+  <script>
+    const fmt = new Intl.NumberFormat("en-US");
+    const pct = (n) => `${((n || 0) * 100).toFixed(1)}%`;
+    const escapeHtml = (s) => String(s ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+
+    let charts = [];
+    let appData = null;
+    let dailyDataMap = {};
+    let searchSessions = [];
+    let activePeriodKey = "today";
+    let activeMainView = "stats";
+
+    function getFloatingReasonPopover() {
+      let popover = document.getElementById('floatingReasonPopover');
+      if (!popover) {
+        popover = document.createElement('div');
+        popover.id = 'floatingReasonPopover';
+        popover.className = 'floating-reason-popover';
+        popover.hidden = true;
+        document.body.appendChild(popover);
+      }
+      return popover;
+    }
+
+    function showReasonPopover(trigger) {
+      const source = trigger.querySelector('.reason-popover');
+      if (!source) return;
+      const popover = getFloatingReasonPopover();
+      popover.innerHTML = source.innerHTML;
+      popover.hidden = false;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const gap = 8;
+      const right = triggerRect.right + gap;
+      const left = triggerRect.left - popoverRect.width - gap;
+      const x = right + popoverRect.width <= window.innerWidth - gap ? right : Math.max(gap, left);
+      const y = Math.min(
+        Math.max(gap, triggerRect.top + triggerRect.height / 2 - popoverRect.height / 2),
+        window.innerHeight - popoverRect.height - gap
+      );
+
+      popover.style.left = `${x}px`;
+      popover.style.top = `${y}px`;
+    }
+
+    function hideReasonPopover() {
+      const popover = document.getElementById('floatingReasonPopover');
+      if (popover) popover.hidden = true;
+    }
+
+    document.addEventListener('mouseover', (event) => {
+      const trigger = event.target.closest?.('.reason-help');
+      if (trigger) showReasonPopover(trigger);
+    });
+    document.addEventListener('mouseout', (event) => {
+      if (event.target.closest?.('.reason-help')) hideReasonPopover();
+    });
+    document.addEventListener('focusin', (event) => {
+      const trigger = event.target.closest?.('.reason-help');
+      if (trigger) showReasonPopover(trigger);
+    });
+    document.addEventListener('focusout', (event) => {
+      if (event.target.closest?.('.reason-help')) hideReasonPopover();
+    });
+    window.addEventListener('scroll', hideReasonPopover, true);
+    window.addEventListener('resize', hideReasonPopover);
+
+    function topEntries(obj, limit = 10) {
+      return Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).slice(0, limit);
+    }
+
+    function destroyCharts() {
+      for (const chart of charts) chart.destroy();
+      charts = [];
+    }
+
+    function switchMainView(view) {
+      activeMainView = view;
+      document.getElementById("statsView").style.display = view === "stats" ? "block" : "none";
+      document.getElementById("searchView").style.display = view === "search" ? "block" : "none";
+      document.getElementById("optimizeView").style.display = view === "optimize" ? "block" : "none";
+      document.getElementById("menuStats").classList.toggle("active", view === "stats");
+      document.getElementById("menuSearch").classList.toggle("active", view === "search");
+      document.getElementById("menuOptimize").classList.toggle("active", view === "optimize");
+      if (view === "optimize") renderOptimizeDashboard();
+    }
+
+    function switchPeriod(periodKey) {
+      activePeriodKey = periodKey;
+      document.querySelectorAll("#statsView .period-tab").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.period === periodKey);
+      });
+      renderPeriodDashboard();
+    }
+
+    let _optimizeData = null;
+    let _optimizePeriod = 'all';
+
+    async function renderOptimizeDashboard() {
+      switchOptimizePeriod(_optimizePeriod);
+    }
+
+    function getOptimizeFileName(period) {
+      if (period === 'all' || !period) return './data/codex-optimize.json';
+      const known = ['today', 'yesterday', '7days', '30days', 'month'];
+      if (known.includes(period)) return `./data/codex-optimize-${period}.json`;
+      return null;
+    }
+
+    function getBurnFileName(period) {
+      if (period === 'all' || !period) return './data/codex-burn.json';
+      const known = ['today', 'yesterday', '7days', '30days', 'month'];
+      if (known.includes(period)) return `./data/codex-burn-${period}.json`;
+      return null;
+    }
+
+    window.switchOptimizePeriod = function(period) {
+      _optimizePeriod = period;
+      const tabs = document.querySelectorAll('#optimizePeriodTabs .period-tab');
+      tabs.forEach(t => t.classList.remove('active'));
+      if (period === 'all') tabs[0].classList.add('active');
+      else if (period === 'today') tabs[1].classList.add('active');
+      else if (period === 'yesterday') tabs[2].classList.add('active');
+      else if (period === '7days') tabs[3].classList.add('active');
+      else if (period === '30days') tabs[4].classList.add('active');
+      else if (period === 'month') tabs[5].classList.add('active');
+
+      const el = document.getElementById("optimizeResults");
+      el.innerHTML = '<div class="muted" style="padding:24px;text-align:center">Loading...</div>';
+
+      if (period === 'custom') {
+        const val = document.getElementById('optDatePicker').value;
+        if (!val) { switchOptimizePeriod('all'); return; }
+        // No pre-computed file for custom date; fall back to "all" data and filter client-side
+        _optimizePeriod = 'all';
+        tabs[0].classList.add('active');
+        loadAndFilterOptimize('all', s => s.date === val);
+        return;
+      }
+
+      if (period === 'session') {
+        const query = document.getElementById('optSessionSearch').value.trim().toLowerCase();
+        if (!query) { switchOptimizePeriod('all'); return; }
+        _optimizePeriod = 'all';
+        tabs[0].classList.add('active');
+        loadAndFilterOptimize('all', s => (s.sessionId || '').toLowerCase().includes(query));
+        return;
+      }
+
+      const file = getOptimizeFileName(period);
+      if (!file) { switchOptimizePeriod('all'); return; }
+      loadOptimizeFile(file, getBurnFileName(period));
+    }
+
+    async function loadOptimizeFile(file, burnFile) {
+      const el = document.getElementById("optimizeResults");
+      try {
+        const [res, burnRes] = await Promise.all([
+          fetch(file + '?_=' + Date.now(), { cache: "no-store" }),
+          burnFile ? fetch(burnFile + '?_=' + Date.now(), { cache: "no-store" }) : Promise.resolve(null),
+        ]);
+        console.log('loadOptimizeFile:', file, 'status:', res.status);
+        if (!res.ok) { el.innerHTML = '<div class="muted" style="padding:24px;text-align:center">No optimization data (' + file + ')</div>'; return; }
+        const data = await res.json();
+        const burn = burnRes && burnRes.ok ? await burnRes.json() : null;
+        console.log('optimize data:', data.findingCount, 'findings, types:', (data.findings||[]).map(f=>f.type));
+        renderOptimizeFindings(el, data, burn);
+      } catch (e) {
+        console.error('loadOptimizeFile error:', e);
+        el.innerHTML = '<div class="muted" style="padding:24px;text-align:center">Load failed: ' + e.message + '</div>';
+      }
+    }
+
+    async function loadAndFilterOptimize(period, filterFn) {
+      const el = document.getElementById("optimizeResults");
+      try {
+        const res = await fetch(getOptimizeFileName(period), { cache: "no-store" });
+        if (!res.ok) { el.innerHTML = '<div class="muted" style="padding:24px;text-align:center">No optimization data</div>'; return; }
+        const data = await res.json();
+        const cloned = JSON.parse(JSON.stringify(data));
+        cloned.findings = cloned.findings.map(f => {
+          if (!f.sessions || !f.sessions.length) return f;
+          const filteredSessions = f.sessions.filter(filterFn);
+          return { ...f, sessions: filteredSessions };
+        }).filter(f => f.sessions ? f.sessions.length > 0 : true);
+        renderOptimizeFindings(el, cloned);
+      } catch {
+        el.innerHTML = '<div class="muted" style="padding:24px;text-align:center">Load failed</div>';
+      }
+    }
+
+    function renderBurnAnalysis(burn) {
+      if (!burn) return '';
+      const topSessions = burn.topSessions || [];
+      const scoreClass = score => score < 80 ? 'impact-high' : score < 90 ? 'impact-medium' : 'impact-low';
+      const reasonPopover = (item) => {
+        const levels = (item.levels || []).map(level => `
+          <div class="reason-level">
+            <span class="impact-badge impact-${level.level === 'high' ? 'high' : level.level === 'medium' ? 'medium' : 'low'}">${escapeHtml(level.level)}</span>
+            <span>${escapeHtml(level.text || '')}</span>
+          </div>`).join('');
+        return `
+          <span>${escapeHtml(item.logic || 'No rule description')}</span>
+          ${levels ? `<span class="reason-levels">${levels}</span>` : ''}
+        `;
+      };
+      const primaryReason = (row) => {
+        const item = row.primaryReason || (row.deductions || []).find(reason => (reason.points || 0) > 0);
+        return item ? `<span class="impact-badge impact-${item.level === 'high' ? 'high' : item.level === 'medium' ? 'medium' : 'low'}">${escapeHtml(item.label)}</span>` : '';
+      };
+      const reasonPriority = ['Repeated Rework', 'Search Heavy / Low Edit', 'Test Heavy / Low Edit', 'Context Heavy', 'High Verification Activity'];
+      const reasonRank = (item) => {
+        const index = reasonPriority.indexOf(item.label);
+        return index === -1 ? reasonPriority.length : index;
+      };
+      const deductionRows = (items) => [...(items || [])].sort((a, b) => reasonRank(a) - reasonRank(b)).map(item => `
+        <tr>
+          <td>
+            <span class="reason-label">
+              ${escapeHtml(item.label)}
+              <span class="reason-help" tabindex="0" aria-label="${escapeHtml(item.logic || '')}">?
+                <span class="reason-popover">${reasonPopover(item)}</span>
+              </span>
+            </span>
+          </td>
+          <td><span class="impact-badge impact-${item.level === 'high' ? 'high' : item.level === 'medium' ? 'medium' : 'low'}">${escapeHtml(item.level)}</span></td>
+          <td class="num">${item.points ? `${item.points > 0 ? '-' : '+'}${Math.abs(item.points)}` : 'signal'}</td>
+          <td class="evidence-cell">${escapeHtml(item.evidence || '-')}</td>
+        </tr>`).join('');
+
+      return `
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-title-row"><h2>Cost Lens</h2><span class="muted">${money(burn.totalCostUsd || 0)} | ${fmt.format(burn.totalTokens || 0)} tokens</span></div>
+          ${topSessions.length ? '<div class="burn-header"><span></span><span>Session</span><span>Score</span><span class="burn-date">Date</span><span>Project</span><span>Cost</span><span>Primary Reason</span></div>' : ''}
+          ${topSessions.map(row => `
+            <details class="subagent-details">
+              <summary class="subagent-summary burn-summary">
+                <span class="mono">${escapeHtml((row.sessionId || '').slice(0, 12))}</span>
+                <span class="impact-badge ${scoreClass(row.score)}">${fmt.format(row.score || 0)}</span>
+                <span class="burn-date">${escapeHtml(row.date || '-')}</span>
+                <span class="burn-project">${escapeHtml(row.projectName || '')}</span>
+                <span class="num cost">${money(row.costUsd || 0)}</span>
+                <span class="burn-high-tags">${primaryReason(row)}</span>
+              </summary>
+              <div class="subagent-body">
+                <div class="table-wrap"><table class="bar-table burn-table">
+                  <colgroup><col style="width:34%"><col style="width:110px"><col style="width:80px"><col></colgroup>
+                  <thead><tr><th>Reason</th><th>Level</th><th class="num">Impact</th><th>Evidence</th></tr></thead>
+                  <tbody>${deductionRows(row.deductions)}</tbody>
+                </table></div>
+                <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                  <button class="btn btn-sm btn-accent-outline" onclick="showSession('${escapeHtml(row.sessionId)}')">Open Session Detail</button>
+                </div>
+              </div>
+            </details>`).join('') || '<div class="muted">No scored sessions</div>'}
+        </div>`;
+    }
+
+    function renderOptimizeFindings(el, data, burn = null) {
+      el.innerHTML = renderBurnAnalysis(burn) || '<div class="muted" style="padding:24px;text-align:center">No scored sessions</div>';
+    }
+
+    function money(value) {
+      return `$${Number(value || 0).toFixed(4)}`;
+    }
+
+    function renderHeaderBar(period) {
+      const dailyRows = period.dailyActivity || [];
+      const totalCost = sumRows(dailyRows, 'costUsd');
+      const totalCalls = sumRows(dailyRows, 'calls');
+      const totalSessions = sumRows(dailyRows, 'sessions');
+      const inputTokens = sumRows(dailyRows, 'inputTokens');
+      const cachedTokens = sumRows(dailyRows, 'cachedInputTokens');
+      const outputTokens = sumRows(dailyRows, 'outputTokens');
+      const totalTurns = sumRows(dailyRows, 'turns');
+      const effectiveInput = inputTokens - cachedTokens;
+      const cacheRatio = inputTokens > 0 ? cachedTokens / inputTokens : 0;
+
+      document.getElementById('hdrCost').textContent = money(totalCost);
+      document.getElementById('hdrCalls').textContent = fmt.format(totalCalls);
+      document.getElementById('hdrSessions').textContent = fmt.format(totalSessions);
+      document.getElementById('hdrCacheHit').textContent = pct(cacheRatio);
+      document.getElementById('hdrInput').textContent = fmt.format(effectiveInput);
+      document.getElementById('hdrOutput').textContent = fmt.format(outputTokens);
+      document.getElementById('hdrCached').textContent = fmt.format(cachedTokens);
+      document.getElementById('hdrTurns').textContent = fmt.format(totalTurns);
+    }
+
+    function renderBarPanel(title, rows, columns, options = {}) {
+      if (!rows || rows.length === 0) return '<div class="muted" style="padding:12px 0;text-align:center">No data</div>';
+      const { maxBy = 'costUsd', limit } = options;
+      if (limit > 0) rows = rows.slice(0, limit);
+      const maxVal = rows.reduce((m, r) => Math.max(m, Number(r[maxBy] || 0)), 0);
+      const rowHtml = rows.map((row) => {
+        const barPct = maxVal > 0 ? (Number(row[maxBy] || 0) / maxVal * 100) : 0;
+        const cells = columns.map(col => {
+          if (col.type === 'bar') {
+            return `<td class="bar-cell"><span class="bar-track"><span class="bar-fill" style="width:${Math.max(barPct, 1)}%"></span></span></td>`;
+          }
+          const val = col.render ? col.render(row) : (row[col.key] != null ? escapeHtml(String(row[col.key])) : '');
+          const cls = col.className || 'bar-num';
+          const clickHandler = row.__onclick && col.type === 'label' ? ` onclick="${row.__onclick}"` : '';
+          return `<td class="${cls}"${clickHandler}>${val}</td>`;
+        }).join('');
+        const clickClass = row.__onclick ? ' style="cursor:pointer"' : '';
+        return `<tr${clickClass}>${cells}</tr>`;
+      }).join('');
+
+      const thead = columns.map(col => {
+        if (col.type === 'bar') return '<th style="width:40%"></th>';
+        return `<th class="${col.headerClass || 'bar-num'}">${escapeHtml(col.label)}</th>`;
+      }).join('');
+
+      return `
+        <div class="panel-title-row">
+          <h2>${escapeHtml(title)}</h2>
+        </div>
+        <div class="table-wrap">
+          <table class="bar-table">
+            <thead><tr>${thead}</tr></thead>
+            <tbody>${rowHtml}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function sumRows(rows, key) {
+      return (rows || []).reduce((total, row) => total + Number(row[key] || 0), 0);
+    }
+
+    function addCountMap(target, source) {
+      for (const [key, value] of Object.entries(source || {})) {
+        target[key] = (target[key] || 0) + Number(value || 0);
+      }
+    }
+
+    function createPeriodMetric(extra = {}) {
+      return {
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        effectiveInputTokens: 0,
+        outputTokens: 0,
+        reasoningOutputTokens: 0,
+        totalTokens: 0,
+        calls: 0,
+        turns: 0,
+        sessions: 0,
+        costUsd: 0,
+        tools: {},
+        commands: {},
+        skills: {},
+        files: {},
+        ...extra,
+      };
+    }
+
+    function addPeriodMetric(target, source) {
+      target.inputTokens += Number(source.inputTokens || 0);
+      target.cachedInputTokens += Number(source.cachedInputTokens || 0);
+      target.effectiveInputTokens += Number(source.effectiveInputTokens ?? Math.max(0, Number(source.inputTokens || 0) - Number(source.cachedInputTokens || 0)));
+      target.outputTokens += Number(source.outputTokens || 0);
+      target.reasoningOutputTokens += Number(source.reasoningOutputTokens || 0);
+      target.totalTokens += Number(source.totalTokens || 0);
+      target.calls += Number(source.calls || source.tokenEventCount || 0);
+      target.turns += Number(source.turns || 0);
+      target.sessions += Number(source.sessions || 0);
+      target.costUsd += Number(source.costUsd || 0);
+      addCountMap(target.tools, source.tools);
+      addCountMap(target.commands, source.commands);
+      addCountMap(target.skills, source.skills);
+      addCountMap(target.files, source.files);
+    }
+
+    function finishPeriodMetric(metric) {
+      metric.effectiveInputTokens = metric.inputTokens - metric.cachedInputTokens;
+      metric.cacheRatio = metric.inputTokens > 0 ? metric.cachedInputTokens / metric.inputTokens : 0;
+      metric.costUsd = Number((metric.costUsd || 0).toFixed(6));
+      return metric;
+    }
+
+    function getPeriodDates(periodKey, baseDate = appData?.targetDate || getTodayString()) {
+      const end = new Date(`${baseDate}T00:00:00`);
+      const start = new Date(end);
+
+      if (periodKey === "yesterday") {
+        start.setDate(start.getDate() - 1);
+        end.setDate(end.getDate() - 1);
+      }
+      if (periodKey === "7days") start.setDate(start.getDate() - 6);
+      if (periodKey === "30days") start.setDate(start.getDate() - 29);
+      if (periodKey === "thisMonth") start.setDate(1);
+      if (periodKey === "6months") {
+        start.setMonth(start.getMonth() - 6);
+        start.setDate(start.getDate() + 1);
+      }
+
+      const dates = [];
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const yyyy = cursor.getFullYear();
+        const mm = String(cursor.getMonth() + 1).padStart(2, "0");
+        const dd = String(cursor.getDate()).padStart(2, "0");
+        dates.push(`${yyyy}-${mm}-${dd}`);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return dates;
+    }
+
+    async function fetchDailyData(date) {
+      if (dailyDataMap[date]) return dailyDataMap[date];
+      try {
+        const res = await fetch(`./data/codex-usage-${date}.json`, { cache: "no-store" });
+        if (!res.ok) return null;
+        const data = await res.json();
+        dailyDataMap[date] = data;
+        return data;
+      } catch {
+        return null;
+      }
+    }
+
+    async function loadSearchSessions(days = 30) {
+      const end = new Date(`${appData?.targetDate || getTodayString()}T00:00:00`);
+      const dates = [];
+      const cursor = new Date(end);
+
+      for (let i = 0; i < days; i += 1) {
+        const yyyy = cursor.getFullYear();
+        const mm = String(cursor.getMonth() + 1).padStart(2, "0");
+        const dd = String(cursor.getDate()).padStart(2, "0");
+        dates.push(`${yyyy}-${mm}-${dd}`);
+        cursor.setDate(cursor.getDate() - 1);
+      }
+
+      const files = (await Promise.all(dates.map(fetchDailyData))).filter(Boolean);
+      searchSessions = files.flatMap(data =>
+        (data.sessions || []).map(session => ({
+          ...session,
+          sourceDate: data.targetDate,
+        })),
+      );
+    }
+
+    async function buildPeriodData(periodKey) {
+      const dates = getPeriodDates(periodKey);
+      const files = (await Promise.all(dates.map(fetchDailyData))).filter(Boolean);
+      const dailyActivity = [];
+      const projectMap = {};
+      const sessionMap = {};
+      const turnRows = [];
+      const skillMap = {}; const modelMap = {}; const toolsAccum = {}; const commandsAccum = {}; const skillsAccum = {};
+
+      for (const data of files) {
+        const day = data.days?.[0] || {};
+        const dayMetric = createPeriodMetric({
+          date: data.targetDate,
+          inputTokens: Number(day.inputTokens || 0),
+          cachedInputTokens: Number(day.cachedInputTokens || 0),
+          outputTokens: Number(day.outputTokens || 0),
+          reasoningOutputTokens: Number(day.reasoningOutputTokens || 0),
+          totalTokens: Number(day.totalTokens || 0),
+          calls: Number(day.tokenEventCount || 0),
+          tools: {},
+          commands: {},
+          skills: {},
+          files: {},
+        });
+
+        const sessions = data.sessions || [];
+        dayMetric.sessions = sessions.length;
+
+        for (const session of sessions) {
+          const projectName = session.projectName || session.project || "unknown";
+          if (!projectMap[projectName]) projectMap[projectName] = createPeriodMetric({ projectName, sessionsSet: new Set() });
+          projectMap[projectName].sessionsSet.add(session.sessionId);
+
+          const sessionMetric = createPeriodMetric({
+            projectName,
+            sessionId: session.sessionId,
+            sessions: 1,
+            turns: (session.turns || []).length,
+            calls: Number(session.calls || session.tokenEventCount || 0),
+            inputTokens: Number(session.inputTokens || 0),
+            cachedInputTokens: Number(session.cachedInputTokens || 0),
+            outputTokens: Number(session.outputTokens || 0),
+            reasoningOutputTokens: Number(session.reasoningOutputTokens || 0),
+            totalTokens: Number(session.totalTokens || 0),
+            costUsd: Number(session.costUsd || 0),
+            tools: session.tools || {},
+            commands: session.commands || {},
+            skills: session.skills || {},
+            files: session.files || {},
+          });
+
+          for (const turn of session.turns || []) {
+            const turnMetric = finishPeriodMetric(createPeriodMetric({
+              projectName,
+              sessionId: session.sessionId,
+              turnIndex: turn.turnIndex,
+              timestamp: turn.timestamp,
+              date: turn.date || data.targetDate,
+              calls: Number(turn.calls || 0),
+              turns: 1,
+              inputTokens: Number(turn.inputTokens || 0),
+              cachedInputTokens: Number(turn.cachedInputTokens || 0),
+              outputTokens: Number(turn.outputTokens || 0),
+              reasoningOutputTokens: Number(turn.reasoningOutputTokens || 0),
+              totalTokens: Number(turn.totalTokens || 0),
+              costUsd: Number(turn.costUsd || 0),
+              tools: turn.tools || {},
+              commands: turn.commands || {},
+              skills: turn.skills || {},
+              files: turn.files || {},
+            }));
+
+            addPeriodMetric(dayMetric, { ...turnMetric, sessions: 0 });
+            addPeriodMetric(projectMap[projectName], { ...turnMetric, sessions: 0 });
+            turnRows.push(turnMetric);
+
+            for (const [skillName, count] of Object.entries(turn.skills || {})) {
+              if (!skillMap[skillName]) skillMap[skillName] = createPeriodMetric({ skillName, count: 0 });
+              skillMap[skillName].count += Number(count || 0);
+              addPeriodMetric(skillMap[skillName], { ...turnMetric, turns: 0, sessions: 0 });
+            }
+          }
+
+          for (const t of (session.turns || [])) {
+            for (const step of (t.steps || [])) {
+              const modelName = step.model || 'unknown';
+              if (!modelMap[modelName]) modelMap[modelName] = createPeriodMetric({ modelName, count: 0 });
+              modelMap[modelName].count += step.calls || 1;
+              modelMap[modelName].costUsd += Number(step.costUsd || 0);
+              modelMap[modelName].inputTokens += step.inputTokens || 0;
+              modelMap[modelName].cachedInputTokens += step.cachedInputTokens || 0;
+              modelMap[modelName].outputTokens += step.outputTokens || 0;
+            }
+          }
+
+          sessionMap[session.sessionId] = finishPeriodMetric(sessionMetric);
+        }
+        addCountMap(toolsAccum, dayMetric.tools);
+        addCountMap(commandsAccum, dayMetric.commands);
+        addCountMap(skillsAccum, dayMetric.skills);
+
+        dailyActivity.push(finishPeriodMetric(dayMetric));
+      }
+
+      const byProject = Object.values(projectMap).map(project => {
+        project.sessions = project.sessionsSet?.size || 0;
+        delete project.sessionsSet;
+        return finishPeriodMetric(project);
+      });
+
+      const byModel = Object.values(modelMap).map(finishPeriodMetric).sort((a, b) => b.count - a.count).slice(0, 20);
+
+      return {
+        dailyActivity: dailyActivity.sort((a, b) => String(a.date).localeCompare(String(b.date))),
+        byProject: byProject.sort((a, b) => b.costUsd - a.costUsd).slice(0, 30),
+        bySession: Object.values(sessionMap).sort((a, b) => b.costUsd - a.costUsd).slice(0, 30),
+        byTurn: turnRows.sort((a, b) => b.costUsd - a.costUsd).slice(0, 30),
+        bySkills: Object.values(skillMap).map(finishPeriodMetric).sort((a, b) => b.costUsd - a.costUsd).slice(0, 30),
+        byModel,
+        tools: toolsAccum,
+        commands: commandsAccum,
+        skills: skillsAccum,
+      };
+    }
+
+    async function renderPeriodDashboard() {
+      const period = await buildPeriodData(activePeriodKey);
+      renderHeaderBar(period);
+
+      const dailyCols = [
+        { label: 'Date', key: 'date', className: 'bar-label', type: 'label' },
+        { type: 'bar' },
+        { label: 'Cost', render: row => money(row.costUsd), className: 'bar-num cost' },
+        { label: 'Calls', render: row => fmt.format(row.calls || 0) },
+      ];
+      document.getElementById('panelDaily').innerHTML = renderBarPanel('Daily Activity', period.dailyActivity || [], dailyCols, { maxBy: 'costUsd', limit: 15 });
+
+      const projCols = [
+        { label: 'Project', key: 'projectName', className: 'bar-label', type: 'label' },
+        { type: 'bar' },
+        { label: 'Cost', render: row => money(row.costUsd), className: 'bar-num cost' },
+        { label: 'Sessions', render: row => fmt.format(row.sessions || 0) },
+      ];
+      document.getElementById('panelProject').innerHTML = renderBarPanel('By Project', period.byProject || [], projCols, { maxBy: 'costUsd' });
+
+      const modelCols = [
+        { label: 'Model', key: 'modelName', className: 'bar-label', type: 'label' },
+        { type: 'bar' },
+        { label: 'Cost', render: row => money(row.costUsd), className: 'bar-num cost' },
+        { label: 'Count', render: row => fmt.format(row.count || 0) },
+      ];
+      document.getElementById('panelModel').innerHTML = renderBarPanel('By Model', period.byModel || [], modelCols, { maxBy: 'costUsd' });
+
+      const toolEntries = topEntries(period.tools || {}, 20).map(([name, count]) => ({ toolName: name, calls: count }));
+      const toolCols = [
+        { label: 'Tool', key: 'toolName', className: 'bar-label', type: 'label' },
+        { type: 'bar' },
+        { label: 'Calls', render: row => fmt.format(row.calls || 0) },
+      ];
+      document.getElementById('panelTools').innerHTML = renderBarPanel('Core Tools', toolEntries, toolCols, { maxBy: 'calls' });
+
+      const commandEntries = topEntries(period.commands || {}, 20).map(([name, count]) => ({ commandName: name, calls: count }));
+      const commandCols = [
+        { label: 'Command', key: 'commandName', className: 'bar-label', type: 'label' },
+        { type: 'bar' },
+        { label: 'Calls', render: row => fmt.format(row.calls || 0) },
+      ];
+      document.getElementById('panelCommands').innerHTML = renderBarPanel('Commands', commandEntries, commandCols, { maxBy: 'calls' });
+
+      const skillEntries = topEntries(period.skills || {}, 20).map(([name, count]) => ({ skillName: name, count }));
+      const skillCols = [
+        { label: 'Skill', key: 'skillName', className: 'bar-label', type: 'label' },
+        { type: 'bar' },
+        { label: 'Count', render: row => fmt.format(row.count || 0) },
+      ];
+      document.getElementById('panelSkills').innerHTML = renderBarPanel('By Skill', skillEntries, skillCols, { maxBy: 'count' });
+
+      const sessCols = [
+        { label: 'Session', key: 'sessionId', className: 'bar-label', type: 'label' },
+        { type: 'bar' },
+        { label: 'Cost', render: row => money(row.costUsd), className: 'bar-num cost' },
+        { label: 'Turns', render: row => fmt.format(row.turns || 0) },
+      ];
+      const sessRows = (period.bySession || []).map(row => {
+        const fullId = row.sessionId || '';
+        return {
+          ...row,
+          sessionId: fullId.slice(0, 12),
+          __onclick: `showSession('${escapeHtml(fullId)}')`,
+        };
+      });
+      document.getElementById('panelSession').innerHTML = renderBarPanel('By Session', sessRows, sessCols, { maxBy: 'costUsd' });
+    }
+
+    function renderMapTable(el, entries, emptyText = "No data") {
+      if (!entries || entries.length === 0) {
+        el.innerHTML = `<tr><td>${emptyText}</td></tr>`;
+        return;
+      }
+      el.innerHTML = `
+        <thead><tr><th>Name</th><th>Count</th></tr></thead>
+        <tbody>${entries.map(([name, count]) => `<tr><td class="mono">${escapeHtml(name)}</td><td>${fmt.format(count)}</td></tr>`).join("")}</tbody>
+      `;
+    }
+
+    function renderSummaryCards(el, items) {
+      el.innerHTML = items.map(item => `
+        <div class="mini">
+          <div class="label">${escapeHtml(item.label)}</div>
+          <div class="value">${escapeHtml(item.value)}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderOverview(data) {
+      destroyCharts();
+      document.getElementById("meta").textContent = `Generated: ${data.generatedAt} | JSONL: ${fmt.format(data.parsedJsonlFiles || 0)} | Target: ${data.targetDate || "-"}`;
+    }
+
+    async function initDateControls(data) {
+      const sessionDateFilter = document.getElementById("sessionDateFilter");
+      const sessionProjectFilter = document.getElementById("sessionProjectFilter");
+      await loadSearchSessions(30);
+
+      const dates = [...new Set(searchSessions.map(session => session.sourceDate).filter(Boolean))]
+        .sort((a, b) => b.localeCompare(a));
+      const projects = [...new Set(searchSessions.map(session => session.projectName || "unknown"))]
+        .sort((a, b) => a.localeCompare(b));
+
+      sessionDateFilter.innerHTML = `<option value="">Last 30 days</option>${dates.map(date => `<option value="${date}">${date}</option>`).join("")}`;
+      sessionProjectFilter.innerHTML = `<option value="">All projects</option>${projects.map(project => `<option value="${escapeHtml(project)}">${escapeHtml(project)}</option>`).join("")}`;
+      sessionDateFilter.value = "";
+      sessionProjectFilter.value = "";
+      sessionDateFilter.onchange = () => { sessionPage = 1; renderSessionTable(); };
+      sessionProjectFilter.onchange = () => { sessionPage = 1; renderSessionTable(); };
+      document.getElementById("sessionSearch").oninput = () => { sessionPage = 1; renderSessionTable(); };
+    }
+
+    function renderDateDetail(date) {
+    }
+
+    let sessionPage = 1;
+    let sessionTotalPages = 1;
+    const SESSION_PAGE_SIZE = 20;
+
+    function goSessionPage(delta) {
+      sessionPage = Math.max(1, Math.min(sessionTotalPages, sessionPage + delta));
+      renderSessionTable();
+    }
+
+    function renderSessionTable() {
+      const q = document.getElementById("sessionSearch").value.trim().toLowerCase();
+      const date = document.getElementById("sessionDateFilter").value;
+      const project = document.getElementById("sessionProjectFilter").value;
+      const allSessions = (searchSessions.length ? searchSessions : (appData.sessions || []))
+        .filter(s => !s.parentSessionId && s.sessionType !== 'assessment')
+        .filter(s => {
+          if (date && s.sourceDate !== date && s.date !== date && !(s.turns || []).some(turn => turn.date === date)) return false;
+          if (project && (s.projectName || "unknown") !== project) return false;
+          if (!q) return true;
+          const text = JSON.stringify({
+            sessionId: s.sessionId,
+            tools: s.tools,
+            commands: s.commands,
+            skills: s.skills,
+            files: s.files,
+            turns: (s.turns || []).map(turn => ({ userMessage: turn.userMessage, tools: turn.tools, commands: turn.commands })),
+          }).toLowerCase();
+          return text.includes(q);
+        })
+        .sort((a, b) => {
+          const ta = (a.turns || [])[0]?.timestamp || a.sourceDate || '';
+          const tb = (b.turns || [])[0]?.timestamp || b.sourceDate || '';
+          return tb.localeCompare(ta);
+        });
+
+      const total = allSessions.length;
+      const totalPages = Math.max(1, Math.ceil(total / SESSION_PAGE_SIZE));
+      sessionTotalPages = totalPages;
+      sessionPage = Math.min(Math.max(1, sessionPage), totalPages);
+      const start = (sessionPage - 1) * SESSION_PAGE_SIZE;
+      const pageSessions = allSessions.slice(start, start + SESSION_PAGE_SIZE);
+
+      const rows = pageSessions.map(s => `
+        <tr class="clickable" onclick="showSession('${escapeHtml(s.sessionId)}')">
+          <td>${escapeHtml(s.sourceDate || s.date || appData.targetDate || "-")}</td>
+          <td class="mono">${escapeHtml(s.projectName || "unknown")}</td>
+          <td class="request">${escapeHtml(stripSkillPrefix((s.turns || []).map(turn => turn.userMessage).filter(Boolean)[0] || "-"))}</td>
+          <td class="num">${money(s.costUsd || 0)}</td>
+          <td class="num">${fmt.format(s.cachedInputTokens || 0)}</td>
+          <td class="num">${fmt.format((s.turns || []).length)}</td>
+          <td class="num">${fmt.format(s.tokenEventCount || 0)}</td>
+        </tr>
+      `).join("");
+
+      const pagination = totalPages > 1 ? `
+        <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:12px;font-size:13px">
+          <button class="btn" onclick="goSessionPage(-1)" ${sessionPage <= 1 ? 'disabled style="opacity:.4"' : ''}>‹ Prev</button>
+          <span style="color:var(--text-secondary)">${sessionPage} / ${totalPages}</span>
+          <button class="btn" onclick="goSessionPage(1)" ${sessionPage >= totalPages ? 'disabled style="opacity:.4"' : ''}>Next ›</button>
+          <span style="color:var(--text-muted);font-size:12px">${total} sessions</span>
+        </div>
+      ` : total > SESSION_PAGE_SIZE ? `<div style="text-align:center;margin-top:8px;color:var(--text-muted);font-size:12px">${total} sessions</div>` : '';
+
+      document.getElementById("sessionTable").innerHTML = `
+        <thead><tr><th>Date</th><th>Project</th><th>First User Message</th><th class="num">Cost</th><th class="num">Cached</th><th class="num">Turns</th><th class="num">Calls</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="7">No data</td></tr>`}</tbody>
+      `;
+      const pagEl = document.getElementById("sessionPagination");
+      if (pagEl) pagEl.innerHTML = pagination;
+    }
+
+    window.showSession = function(id) {
+      const session = (searchSessions.length ? searchSessions : (appData.sessions || [])).find(s => s.sessionId === id);
+      if (!session) return;
+
+      const toolPills = topEntries(session.tools, 20).map(([k, v]) => `<span class="pill">${escapeHtml(k)} ${fmt.format(v)}</span>`).join("") || "-";
+      const commandPills = topEntries(session.commands, 20).map(([k, v]) => `<span class="pill">${escapeHtml(k)} ${fmt.format(v)}</span>`).join("") || "-";
+      const skillPills = topEntries(session.skills, 20).map(([k, v]) => `<span class="pill">${escapeHtml(k)} ${fmt.format(v)}</span>`).join("") || "-";
+      const fileRows = topEntries(session.files, 30).map(([name, count]) => ({ name, count }));
+
+      document.getElementById("sessionDetailContent").innerHTML = `
+        <div class="muted" style="margin-bottom:4px">${escapeHtml(session.file || "")}</div>
+        <h3 style="margin-top:0">${escapeHtml(session.projectName || "unknown")}</h3>
+        <div class="stats-bar">
+          <div class="stats-item"><div class="stats-label">Cost</div><div class="stats-value cost">${money(session.costUsd || 0)}</div></div>
+          <div class="stats-item"><div class="stats-label">Calls</div><div class="stats-value">${fmt.format(session.tokenEventCount || 0)}</div></div>
+          <div class="stats-item"><div class="stats-label">Cache Hit</div><div class="stats-value">${pct(session.cacheRatio || 0)}</div></div>
+          <div class="stats-item"><div class="stats-label">Input (Eff.)</div><div class="stats-value">${fmt.format((session.effectiveInputTokens || Math.max(0, (session.inputTokens || 0) - (session.cachedInputTokens || 0))))}</div></div>
+          <div class="stats-item"><div class="stats-label">Output</div><div class="stats-value">${fmt.format(session.outputTokens || 0)}</div></div>
+          <div class="stats-item"><div class="stats-label">Cached</div><div class="stats-value">${fmt.format(session.cachedInputTokens || 0)}</div></div>
+          <div class="stats-item"><div class="stats-label">Turns</div><div class="stats-value">${fmt.format((session.turns || []).length)}</div></div>
+        </div>
+        ${session.parentSessionId ? `<div style="margin:-8px 0 12px;font-size:13px;color:var(--text-secondary)">Parent: <a href="#" onclick="showSession('${escapeHtml(session.parentSessionId)}');return false">${escapeHtml(session.parentSessionId.slice(0, 12))}…</a></div>` : ''}
+        <h3>Tools</h3><div>${toolPills}</div>
+        <h3>Commands</h3><div>${commandPills}</div>
+        <h3>Skills</h3><div>${skillPills}</div>
+        <details class="turn-card" style="margin:12px 0">
+          <summary><div class="summary-row"><div class="summary-main"><div class="summary-title summary-caret">Files (${fileRows.length})</div></div></div></summary>
+          <div style="padding:8px 12px"><table>${renderSmallRows(fileRows)}</table></div>
+        </details>
+        <h3>User / Codex Turns</h3>
+        ${renderTurnsTable(session)}
+      `;
+      document.getElementById("sessionDetailDialog").showModal();
+    }
+
+    function renderSmallRows(items) {
+      if (!items || items.length === 0) return `<tr><td>No data</td></tr>`;
+      return items.map(item => `<tr><td class="mono">${escapeHtml(item.name)}</td><td>${fmt.format(item.count)}</td></tr>`).join("");
+    }
+
+    function nl2br(text) {
+      return (text || '').replace(/\n/g, '<br>');
+    }
+
+    function stripSkillPrefix(text) {
+      return (text || '').replace(/^\[[^\]]+\]\([^)]+\)\s*/, '');
+    }
+
+    function normalizeMessageText(text) {
+      return String(text ?? "")
+        .split("\n")
+        .map(line => line.trim())
+        .filter(line => line && !/^(input_text|output_text|text|message|content)$/i.test(line))
+        .join("\n")
+        .trim();
+    }
+
+    function renderStepMessages(messages) {
+      const seen = new Set();
+      const rows = [];
+
+      for (const item of messages || []) {
+        const text = normalizeMessageText(item);
+        if (!text) continue;
+
+        const dedupeKey = text.replace(/^\[[^\]]+\]\s*/, "");
+        if (seen.has(dedupeKey)) continue;
+
+        seen.add(dedupeKey);
+        rows.push(`<div class="muted">${escapeHtml(text)}</div>`);
+      }
+
+      return rows.slice(0, 5).join("") || "-";
+    }
+
+    function previewText(text, max = 160) {
+      const normalized = String(text || "").replace(/\s+/g, " ").trim();
+      if (!normalized) return "-";
+      return normalized.length > max ? `${normalized.slice(0, max)}...` : normalized;
+    }
+
+    function getTurnCodexPreview(turn) {
+      const firstMessageStep = (turn.steps || []).find(step => step.message && step.role !== "user");
+      return previewText(firstMessageStep?.message || "-", 180);
+    }
+
+    function renderSubagents(subagentRefs) {
+      if (!subagentRefs || !subagentRefs.length) return '';
+      const avail = searchSessions.length ? searchSessions : (appData.sessions || []);
+      const anyResolved = subagentRefs.some(ref => avail.find(s => s.sessionId === ref.subagentSessionId));
+      if (anyResolved) {
+        return `
+          <div class="turn-section" style="border-bottom:0">
+            <div class="turn-section-title">Subagents</div>
+            <div class="muted" style="font-size:12px">This turn launched subagents; see the subagent group above.</div>
+          </div>`;
+      }
+      const items = subagentRefs.map(ref => {
+        const sub = avail.find(s => s.sessionId === ref.subagentSessionId);
+        if (!sub) return `
+          <div class="subagent-details">
+            <div class="subagent-summary" style="cursor:default;color:var(--text-muted)">
+              <span></span>
+              <span class="mono">${escapeHtml(ref.subagentSessionId).slice(0, 12)}</span>
+              <span class="role">${escapeHtml(ref.role || 'worker')}</span>
+              <span class="num">${fmt.format(ref.totalTokens || 0)}</span>
+              <span class="num cost">${money(ref.costUsd || 0)}</span>
+              <span class="num">${fmt.format(ref.turns || 0)}</span>
+            </div>
+          </div>`;
+        const subToolPills = topEntries(sub.tools, 10).map(([k, v]) => `<span class="pill">${escapeHtml(k)}</span>`).join("") || "-";
+        const subCommandPills = topEntries(sub.commands, 10).map(([k, v]) => `<span class="pill">${escapeHtml(k)}</span>`).join("") || "-";
+        const subSkillPills = topEntries(sub.skills, 10).map(([k, v]) => `<span class="pill">${escapeHtml(k)}</span>`).join("") || "-";
+        return `
+          <details class="subagent-details">
+            <summary class="subagent-summary">
+              <span class="mono">${escapeHtml(ref.subagentSessionId).slice(0, 12)}</span>
+              <span class="role">${escapeHtml(ref.role || 'worker')}</span>
+              <span class="num">${fmt.format(ref.totalTokens || 0)}</span>
+              <span class="num cost">${money(ref.costUsd || 0)}</span>
+              <span class="num">${fmt.format(ref.turns || 0)}</span>
+            </summary>
+            <div class="subagent-body">
+              <div class="stats-bar">
+                <div class="stats-item"><div class="stats-label">Cost</div><div class="stats-value cost">${money(sub.costUsd || 0)}</div></div>
+                <div class="stats-item"><div class="stats-label">Calls</div><div class="stats-value">${fmt.format(sub.tokenEventCount || 0)}</div></div>
+                <div class="stats-item"><div class="stats-label">Cache Hit</div><div class="stats-value">${pct(sub.cacheRatio || 0)}</div></div>
+                <div class="stats-item"><div class="stats-label">Output</div><div class="stats-value">${fmt.format(sub.outputTokens || 0)}</div></div>
+                <div class="stats-item"><div class="stats-label">Turns</div><div class="stats-value">${fmt.format((sub.turns || []).length)}</div></div>
+              </div>
+              <div class="message-label">Tools</div><div class="mono" style="margin-bottom:6px">${subToolPills}</div>
+              <div class="message-label">Commands</div><div class="mono" style="margin-bottom:6px">${subCommandPills}</div>
+              <div class="message-label">Skills</div><div class="mono">${subSkillPills}</div>
+            </div>
+          </details>`;
+      }).join('');
+      return `
+        <div class="turn-section">
+          <div class="turn-section-title">Subagents</div>
+          ${items}
+          <div class="muted" style="margin-top:6px;font-size:12px">Click to expand and view subagent session details</div>
+        </div>`;
+    }
+
+    function renderParentTurn(turn) {
+      const stepCount = (turn.steps || []).length;
+      const turnTools = topEntries(turn.tools, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+      const turnCommands = topEntries(turn.commands, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+      const turnSkills = topEntries(turn.skills, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+      const turnFiles = topEntries(turn.files, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join("<br>") || "-";
+      const userPreview = previewText(stripSkillPrefix(turn.userMessage), 180);
+      const codexPreview = getTurnCodexPreview(turn);
+
+      return `
+        <details class="turn-card">
+          <summary>
+            <div class="summary-row">
+              <div class="summary-main">
+                <div class="summary-title summary-caret">Turn #${turn.turnIndex || "-"} | ${escapeHtml(turn.timestamp || turn.date || "-")}</div>
+                <div class="summary-preview">User: ${escapeHtml(userPreview)}</div>
+                <div class="summary-preview">Codex: ${escapeHtml(codexPreview)}</div>
+              </div>
+              <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Output ${fmt.format(turn.outputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
+            </div>
+          </summary>
+          <div class="turn-section">
+            <div class="turn-section-title">User</div>
+            <div class="message-block">${nl2br(escapeHtml(stripSkillPrefix(turn.userMessage) || "-"))}</div>
+          </div>
+          ${turn.commentary && turn.commentary.length ? `
+          <div class="turn-section">
+            <div class="turn-section-title">Codex Commentary</div>
+            ${turn.commentary.map(c => `<div class="message-block muted">${nl2br(escapeHtml(c))}</div>`).join('')}
+          </div>` : ''}
+          <div class="turn-section">
+            <div class="turn-section-title">Codex Work Process</div>
+            <div class="message-label">Tools</div>
+            <div class="mono">${turnTools}</div>
+            <div class="message-label">Commands</div>
+            <div class="mono">${turnCommands}</div>
+            <div class="message-label">Skills</div>
+            <div class="mono">${turnSkills}</div>
+            <div class="message-label">Files</div>
+            <div class="mono message-block">${turnFiles}</div>
+            <div class="message-label">Steps Details</div>
+            ${renderTurnSteps(turn)}
+          </div>
+          ${renderSubagents(turn.subagentRefs)}
+        </details>`;
+    }
+
+    function renderSubagentGroup(turns) {
+      if (!turns || !turns.length) return '';
+      const first = turns[0];
+      const totalCost = turns.reduce((s, t) => s + (t.costUsd || 0), 0);
+      const baseCtx = first.baseContextTokens || 0;
+      const nick = first.agentNickname || 'Subagent';
+      const groupInner = turns.map(t => renderSubagentTurn(t)).join('');
+      return `
+        <details class="subagent-group" open>
+          <summary>Subagent: ${escapeHtml(nick)} (${turns.length} turn${turns.length > 1 ? 's' : ''})${baseCtx ? ` · Base: ${fmt.format(baseCtx)} tokens` : ''} · Total: ${money(totalCost)}</summary>
+          ${groupInner}
+        </details>`;
+    }
+
+    function renderSubagentTurn(turn) {
+      const stepCount = (turn.steps || []).length;
+      const turnTools = topEntries(turn.tools, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+      const turnCommands = topEntries(turn.commands, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+      const turnSkills = topEntries(turn.skills, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+      const turnFiles = topEntries(turn.files, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join("<br>") || "-";
+      const userPreview = previewText(stripSkillPrefix(turn.userMessage), 180);
+      const codexPreview = getTurnCodexPreview(turn);
+
+      return `
+        <details class="turn-card turn-subagent">
+          <summary>
+            <div class="summary-row">
+              <div class="summary-main">
+                <div class="summary-title summary-caret"><span class="subagent-badge">${escapeHtml(turn.agentNickname || 'Subagent')}</span></div>
+                <div class="summary-preview">User: ${escapeHtml(userPreview)}</div>
+                <div class="summary-preview">Codex: ${escapeHtml(codexPreview)}</div>
+              </div>
+              <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Output ${fmt.format(turn.outputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
+            </div>
+          </summary>
+          <div class="turn-section">
+            <div class="turn-section-title">User</div>
+            <div class="message-block">${nl2br(escapeHtml(stripSkillPrefix(turn.userMessage) || "-"))}</div>
+          </div>
+          ${turn.commentary && turn.commentary.length ? `
+          <div class="turn-section">
+            <div class="turn-section-title">Codex Commentary</div>
+            ${turn.commentary.map(c => `<div class="message-block muted">${nl2br(escapeHtml(c))}</div>`).join('')}
+          </div>` : ''}
+          <div class="turn-section">
+            <div class="turn-section-title">Codex Work Process</div>
+            <div class="message-label">Tools</div>
+            <div class="mono">${turnTools}</div>
+            <div class="message-label">Commands</div>
+            <div class="mono">${turnCommands}</div>
+            <div class="message-label">Skills</div>
+            <div class="mono">${turnSkills}</div>
+            <div class="message-label">Files</div>
+            <div class="mono message-block">${turnFiles}</div>
+            <div class="message-label">Steps Details</div>
+            ${renderTurnSteps(turn)}
+          </div>
+        </details>`;
+    }
+
+    function renderTurnsTable(session) {
+      const turns = session.turns || [];
+      if (!turns.length) return `<div class="muted" style="padding:12px">No turn group data; re-run mjs to generate updated JSON.</div>`;
+
+      let html = '';
+      let subGroup = null;
+
+      function flushSubGroup() {
+        if (subGroup && subGroup.length) {
+          html += renderSubagentGroup(subGroup);
+          subGroup = null;
+        }
+      }
+
+      for (const turn of turns) {
+        if (turn.isSubagent) {
+          if (subGroup && subGroup[0].agentNickname !== turn.agentNickname) flushSubGroup();
+          if (!subGroup) subGroup = [];
+          subGroup.push(turn);
+        } else {
+          flushSubGroup();
+          html += renderParentTurn(turn);
+        }
+      }
+      flushSubGroup();
+
+      return html;
+    }
+
+    function getRatioColorClass(ratio) {
+      const pct = ratio * 100;
+      if (pct >= 50) return 'ratio-high';
+      if (pct >= 25) return 'ratio-medium';
+      if (pct >= 10) return 'ratio-low';
+      return '';
+    }
+
+    function renderTurnSteps(turn) {
+      const steps = turn.steps || [];
+      if (!steps.length) return `<div class=\"muted\">No step data</div>`;
+
+      const totalCost = steps.reduce((sum, s) => sum + (s.costUsd || 0), 0);
+
+      return steps.map(step => {
+        const tools = topEntries(step.tools, 5).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+        const commands = topEntries(step.commands, 5).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+        const skills = topEntries(step.skills, 5).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
+        const files = topEntries(step.files, 5).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join("<br>") || "-";
+        const effective = step.effectiveInputTokens ?? Math.max(0, (step.inputTokens || 0) - (step.cachedInputTokens || 0));
+        const messagePreview = previewText(step.message, 180);
+        const toolPreview = (step.toolCalls || []).map(tc => tc.name).join(', ').slice(0, 80);
+        const hasCommentary = step.commentary && step.commentary.length ? ` | Commentary ${step.commentary.length}` : '';
+        const costRatio = totalCost > 0 ? (step.costUsd || 0) / totalCost : 0;
+        const ratioColorClass = getRatioColorClass(costRatio);
+
+        return `
+          <details class="step-card">
+            <summary>
+              <div class="summary-row" style="padding:8px 10px">
+                <div class="summary-main">
+                  <div class="summary-title summary-caret">Step #${step.stepIndex || "-"} | ${escapeHtml(step.role || "-")} | ${escapeHtml(step.timestamp || step.date || "-")}</div>
+                  <div class="summary-preview">${escapeHtml(messagePreview !== '-' ? messagePreview : toolPreview || '-')}</div>
+                </div>
+                <div class="summary-meta">Cost ${money(step.costUsd || 0)} (<span class="${ratioColorClass}">${(costRatio * 100).toFixed(2)}%${hasCommentary}</span>)</div>
+              </div>
+            </summary>
+
+            <div class="step-meta">
+              <span>Step #${step.stepIndex || "-"}</span>
+              <span>${escapeHtml(step.role || "-")}</span>
+              <span>${escapeHtml(step.timestamp || step.date || "-")}</span>
+              <span>${money(step.costUsd || 0)}</span>
+              <span>Total ${fmt.format(step.totalTokens || 0)}</span>
+              <span>Input ${fmt.format(step.inputTokens || 0)}</span>
+              <span>Cached ${fmt.format(step.cachedInputTokens || 0)}</span>
+              <span>Effective ${fmt.format(effective)}</span>
+              <span>Output ${fmt.format(step.outputTokens || 0)}</span>
+              <span>Reasoning ${fmt.format(step.reasoningOutputTokens || 0)}</span>
+            </div>
+            <div class="message-label">Message</div>
+            <div class="message-block">${nl2br(escapeHtml(step.message || "-"))}</div>
+            <div class="message-label">Tools</div>
+            <div class="mono">${tools}</div>
+            <div class="message-label">Commands</div>
+            <div class="mono">${commands}</div>
+            <div class="message-label">Skills</div>
+            <div class="mono">${skills}</div>
+            <div class="message-label">Files</div>
+            <div class="message-block mono">${files}</div>
+            ${step.toolCalls && step.toolCalls.length ? `
+            <div class="message-label">Tool Calls</div>
+            ${step.toolCalls.map(tc => `<div class="mono" style="margin:2px 0;font-size:11px;color:var(--text-secondary)">
+              <strong>${escapeHtml(tc.name)}</strong>
+              <span class="muted">${escapeHtml((tc.arguments || '').slice(0, 160))}</span>
+            </div>`).join('')}` : ''}
+          </details>
+        `;
+      }).join("");
+    }
+
+
+    function renderObjectTable(obj, limit = 50) {
+      const rows = Object.entries(obj || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit);
+
+      if (!rows.length) return "<div class='muted'>No data</div>";
+
+      return `
+        <table>
+          <thead><tr><th>Name</th><th>Count</th></tr></thead>
+          <tbody>
+            ${rows.map(([k, v]) => `
+              <tr>
+                <td class="mono">${escapeHtml(k)}</td>
+                <td>${fmt.format(v)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderAttributionTable(session) {
+      const attr = session.attribution || {};
+      const effective = session.effectiveInputTokens || attr.effectiveInputTokens || 0;
+
+      const rows = [
+        ["Files / file context", attr.filesTokens || 0],
+        ["Tools / command output", attr.toolsTokens || 0],
+        ["Skills / workflow context", attr.skillsTokens || 0],
+        ["Conversation / planning", attr.conversationTokens || 0],
+      ];
+
+      return `
+        <table>
+          <thead><tr><th>Estimated Area</th><th>Tokens</th><th>Share</th></tr></thead>
+          <tbody>
+            ${rows.map(([name, tokens]) => `
+              <tr>
+                <td>${escapeHtml(name)}</td>
+                <td>${fmt.format(tokens)}</td>
+                <td>${effective ? ((tokens / effective) * 100).toFixed(1) : "0.0"}%</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        <div class="muted" style="margin-top:8px">
+          ${escapeHtml(attr.note || "Note: Codex log does not directly record individual token consumption per tool/skill.")}
+        </div>
+      `;
+    }
+
+    function renderStepsTable(session) {
+      return renderTurnsTable(session);
+    }
+
+    function getTodayString() {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const dd = String(now.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function createEmptyUsageData(targetDate) {
+      return {
+        generatedAt: "-",
+        sourceDir: "",
+        parsedJsonlFiles: 0,
+        targetDate,
+        totals: {},
+        days: [],
+        sessions: [],
+      };
+    }
+
+    async function loadUsageDate(date = document.getElementById("dateSelect")?.value || getTodayString()) {
+      const targetDate = date || getTodayString();
+      const fileName = `./data/codex-usage-${targetDate}.json`;
+      const meta = document.getElementById("meta");
+      meta.textContent = `Loading ${fileName}...`;
+
+      const res = await fetch(fileName, { cache: "no-store" });
+      if (res.ok) {
+        appData = await res.json();
+      } else {
+        appData = createEmptyUsageData(targetDate);
+      }
+
+      renderOverview(appData);
+      await initDateControls(appData);
+      renderDateDetail(appData.targetDate || targetDate);
+      renderSessionTable();
+      await renderPeriodDashboard();
+      switchMainView(activeMainView);
+    }
+
+    window.loadUsageDate = loadUsageDate;
+
+    async function refreshData() {
+      const btn = document.getElementById("refreshBtn");
+      btn.disabled = true;
+      btn.textContent = "⟳ Parsing...";
+      try {
+        const res = await fetch("/api/reparse", { cache: "no-store" });
+        const data = await res.json();
+        if (data.success) {
+          dailyDataMap = {};
+          await loadUsageDate(getTodayString());
+        } else {
+          alert("Refresh failed: " + (data.error || "unknown error"));
+        }
+      } catch (err) {
+        alert("Refresh failed: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "↻ Refresh Data";
+      }
+    }
+
+    async function main() {
+      await loadUsageDate(getTodayString());
+    }
+
+    main().catch(err => {
+      document.body.insertAdjacentHTML("beforeend", `<pre style="color:var(--accent);padding:16px;font-family:var(--font-mono);font-size:13px">${escapeHtml(err.stack || err.message)}</pre>`);
+    });
+  </script>
+</body>
+</html>

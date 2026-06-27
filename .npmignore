@@ -1,0 +1,15 @@
+# Internal agent instructions and planning notes
+AGENTS.md
+.agents/
+
+# Generated local usage data
+public/data/
+codex-usage*.json
+codex-optimize*.json
+
+# Local metadata and caches
+.DS_Store
+._*
+node_modules/
+.npm/
+*.tgz

@@ -1,0 +1,33 @@
+{
+  "name": "agent-cost-lens",
+  "version": "1.0.0",
+  "description": "Analyze Codex / code-based AI session logs, visualize token usage, estimate API costs, and surface optimization opportunities",
+  "type": "module",
+  "scripts": {
+    "start": "./start.sh",
+    "test": "node --test"
+  },
+  "keywords": [
+    "codex",
+    "agent-cost-lens",
+    "token-tracking",
+    "cost-estimation",
+    "dashboard",
+    "openai",
+    "anthropic"
+  ],
+  "author": "Agent Cost Lens contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FreemanTsai/agent-cost-lens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FreemanTsai/agent-cost-lens/issues"
+  },
+  "homepage": "https://github.com/FreemanTsai/agent-cost-lens#readme",
+  "dependencies": {}
+}
