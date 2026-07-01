@@ -23,6 +23,24 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
+async function refreshAccessToken(auth, authPath) {
+  const resp = await fetch('https://auth.openai.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: auth.tokens.refresh_token,
+      client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+    }),
+  });
+  if (!resp.ok) throw new Error('Token refresh failed');
+  const data = await resp.json();
+  auth.tokens.access_token = data.access_token;
+  if (data.refresh_token) auth.tokens.refresh_token = data.refresh_token;
+  fs.writeFileSync(authPath, JSON.stringify(auth, null, 2));
+  return data.access_token;
+}
+
 function getRecentDailyFiles(publicDir) {
   const dataDir = path.join(publicDir, 'data');
   const files = fs.readdirSync(dataDir)
@@ -60,17 +78,23 @@ http.createServer((req, res) => {
         const token = auth.tokens?.access_token;
         if (!token) throw new Error('No access token');
 
-        const [usageRes, ...sessionData] = await Promise.all([
-          fetch('https://chatgpt.com/backend-api/wham/usage', {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          ...getRecentDailyFiles(publicDir).map(f =>
-            fs.promises.readFile(f, 'utf-8').then(JSON.parse).catch(() => null)
-          ),
-        ]);
+        let usageRes = await fetch('https://chatgpt.com/backend-api/wham/usage', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (usageRes.status === 401) {
+          const newToken = await refreshAccessToken(auth, authPath);
+          usageRes = await fetch('https://chatgpt.com/backend-api/wham/usage', {
+            headers: { Authorization: `Bearer ${newToken}` },
+          });
+        }
         const rateLimits = usageRes.ok ? await usageRes.json() : null;
 
-        const sessions = sessionData
+        const sessionFiles = await Promise.all(
+          getRecentDailyFiles(publicDir).map(f =>
+            fs.promises.readFile(f, 'utf-8').then(JSON.parse).catch(() => null)
+          )
+        );
+        const sessions = sessionFiles
           .filter(Boolean)
           .flatMap(d => d.sessions || [])
           .map(s => {
@@ -78,7 +102,9 @@ http.createServer((req, res) => {
               const ts = t.timestamp || '';
               return ts > max ? ts : max;
             }, '');
-            return { sessionId: s.sessionId, costUsd: s.costUsd, lastTimestamp: lastTs };
+            const firstMsg = s.turns?.find(t => t.userMessage)?.userMessage || '';
+            const preview = firstMsg.replace(/^\[[^\]]+\]\([^)]+\)\s*/, '').slice(0, 40);
+            return { sessionId: s.sessionId, costUsd: s.costUsd, lastTimestamp: lastTs, preview };
           })
           .sort((a, b) => b.lastTimestamp.localeCompare(a.lastTimestamp))
           .slice(0, 5);
