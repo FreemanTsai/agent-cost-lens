@@ -36,7 +36,7 @@
     @keyframes flipDigit{0%{transform:rotateX(0deg)}50%{transform:rotateX(-90deg);opacity:.3}51%{transform:rotateX(90deg);opacity:.3}100%{transform:rotateX(0deg);opacity:1}}
     .flip{animation:flipDigit .35s ease-in-out}
     @keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
-    .skeleton{background:linear-gradient(90deg,var(--bg-surface) 25%,var(--bg-hover,var(--border)) 50%,var(--bg-surface) 75%);background-size:400px 100%;animation:shimmer 1.5s ease-in-out infinite;border-radius:6px}
+    .skeleton{background:linear-gradient(90deg,var(--bg-surface) 25%,var(--border) 50%,var(--bg-surface) 75%);background-size:400px 100%;animation:shimmer 1.5s ease-in-out infinite;border-radius:6px}
     .skeleton-text{height:14px;margin:8px 0;width:60%}
     .skeleton-bar{height:8px;margin:16px 0;width:100%}
     .status-badge{font-size:11px;color:var(--text-muted);text-align:center;margin-top:12px}
@@ -50,7 +50,7 @@
     <!-- injected by JS -->
   </div>
   <script>
-    const fmt = new Intl.NumberFormat('en-US');
+
     const escapeHtml = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[c]);
 
     let prevData = null;
@@ -132,19 +132,6 @@
       `;
     }
 
-    function applyFlip(oldData, newData) {
-      if (!oldData || !newData) return;
-      document.querySelectorAll('.js-flip').forEach(el => {
-        el.classList.remove('flip');
-        // force reflow then re-add if value changed
-        const key = el.dataset.key;
-        if (!key) return;
-        const oldVal = el.textContent;
-        // Re-trigger if value actually differs from old snapshot
-        el.classList.add('flip');
-      });
-    }
-
     let pollTimer = null;
 
     async function fetchMonitor() {
@@ -165,7 +152,7 @@
     function renderMonitor(data, old) {
       const app = document.getElementById('app');
       const rl = data.rateLimits;
-      const sessions = data.sessions || [];
+      const sessions = (data.sessions || []).slice(0, 5);
 
       app.innerHTML = `
         ${renderUsageCard(rl)}
@@ -176,11 +163,24 @@
         <div id="status" class="status-badge">● Live</div>
       `;
 
-      // After render, trigger flip on changed values
+      // After render, trigger flip only on changed values
       if (old) {
         requestAnimationFrame(() => {
           document.querySelectorAll('.js-flip').forEach(el => {
-            el.classList.add('flip');
+            const key = el.dataset.key;
+            if (!key) return;
+            const newVal = el.textContent;
+            let oldVal;
+            if (key === '5h') oldVal = old.rateLimits?.rate_limit?.primary_window?.used_percent + '%';
+            else if (key === '7d') oldVal = old.rateLimits?.rate_limit?.secondary_window?.used_percent + '%';
+            else if (key.startsWith('cost-')) {
+              const id = key.slice(5);
+              const s = (old.sessions || []).find(s => s.sessionId === id);
+              oldVal = s ? '$' + Number(s.costUsd || 0).toFixed(4) : undefined;
+            }
+            if (oldVal !== undefined && oldVal !== newVal) {
+              el.classList.add('flip');
+            }
           });
         });
       }
