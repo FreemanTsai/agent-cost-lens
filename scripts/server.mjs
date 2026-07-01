@@ -3,6 +3,7 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 
@@ -22,6 +23,17 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
+function getRecentDailyFiles(publicDir) {
+  const dataDir = path.join(publicDir, 'data');
+  const files = fs.readdirSync(dataDir)
+    .filter(f => f.startsWith('codex-usage-') && f.endsWith('.json'))
+    .sort()
+    .reverse()
+    .slice(0, 3)
+    .map(f => path.join(dataDir, f));
+  return files;
+}
+
 http.createServer((req, res) => {
   let url = req.url.split('?')[0];
 
@@ -37,6 +49,47 @@ http.createServer((req, res) => {
         res.end(JSON.stringify({ success: true, message: stdout.trim(), writtenFiles }));
       }
     });
+    return;
+  }
+
+  if (url === '/api/monitor') {
+    (async () => {
+      try {
+        const authPath = path.join(os.homedir(), '.codex', 'auth.json');
+        const auth = JSON.parse(fs.readFileSync(authPath, 'utf-8'));
+        const token = auth.tokens?.access_token;
+        if (!token) throw new Error('No access token');
+
+        const [usageRes, ...sessionData] = await Promise.all([
+          fetch('https://chatgpt.com/backend-api/wham/usage', {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          ...getRecentDailyFiles(publicDir).map(f =>
+            fs.promises.readFile(f, 'utf-8').then(JSON.parse).catch(() => null)
+          ),
+        ]);
+        const rateLimits = usageRes.ok ? await usageRes.json() : null;
+
+        const sessions = sessionData
+          .filter(Boolean)
+          .flatMap(d => d.sessions || [])
+          .map(s => {
+            const lastTs = (s.turns || []).reduce((max, t) => {
+              const ts = t.timestamp || '';
+              return ts > max ? ts : max;
+            }, '');
+            return { sessionId: s.sessionId, costUsd: s.costUsd, lastTimestamp: lastTs };
+          })
+          .sort((a, b) => b.lastTimestamp.localeCompare(a.lastTimestamp))
+          .slice(0, 5);
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ rateLimits, sessions, fetchedAt: new Date().toISOString() }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    })();
     return;
   }
 
