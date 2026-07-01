@@ -50,11 +50,13 @@
   <div class="app" id="app">
     <!-- injected by JS -->
   </div>
+  <div id="status" class="status-badge">Loading…</div>
   <script>
 
     const escapeHtml = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[c]);
 
     let prevData = null;
+    let polling = false;
 
     function money(v) {
       return '$' + Number(v || 0).toFixed(4);
@@ -137,6 +139,8 @@
     let pollTimer = null;
 
     async function fetchMonitor() {
+      if (polling) return;
+      polling = true;
       try {
         const res = await fetch('/api/monitor');
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -148,6 +152,8 @@
       } catch (err) {
         document.getElementById('status').textContent = '○ Offline (' + err.message + ')';
         document.getElementById('status').className = 'status-badge error';
+      } finally {
+        polling = false;
       }
     }
 
@@ -162,7 +168,6 @@
           <div class="sessions-title">Latest Sessions</div>
           ${renderSessionCards(sessions)}
         </div>
-        <div id="status" class="status-badge">● Live</div>
       `;
 
       // After render, trigger flip only on changed values
@@ -196,7 +201,6 @@
     function init() {
       const app = document.getElementById('app');
       app.innerHTML = renderSkeleton();
-      document.querySelector('.app')?.insertAdjacentHTML('beforeend', '<div id="status" class="status-badge">Loading…</div>');
 
       fetchMonitor();
       pollTimer = setInterval(fetchMonitor, 10000);

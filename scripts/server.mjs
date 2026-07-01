@@ -43,13 +43,18 @@ async function refreshAccessToken(auth, authPath) {
 
 function getRecentDailyFiles(publicDir) {
   const dataDir = path.join(publicDir, 'data');
-  const files = fs.readdirSync(dataDir)
+  let files;
+  try {
+    files = fs.readdirSync(dataDir);
+  } catch {
+    return [];
+  }
+  return files
     .filter(f => f.startsWith('codex-usage-') && f.endsWith('.json'))
     .sort()
     .reverse()
     .slice(0, 3)
     .map(f => path.join(dataDir, f));
-  return files;
 }
 
 http.createServer((req, res) => {
@@ -110,10 +115,10 @@ http.createServer((req, res) => {
           .slice(0, 5);
 
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ rateLimits, sessions, fetchedAt: new Date().toISOString() }));
+        res.end(JSON.stringify({ success: true, rateLimits, sessions, fetchedAt: new Date().toISOString() }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ success: false, error: err.message }));
       }
     })();
     return;
