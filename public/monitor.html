@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Codex Monitor</title>
+  <link rel="icon" href="monitor-icon.svg" type="image/svg+xml" />
+  <style>
+    @font-face{font-family:"Sansita Swashed";src:url("fonts/SansitaSwashed-Regular.ttf") format("truetype");font-weight:400;font-display:swap}
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0d0d0d;--bg-card:#1a1a1a;--bg-surface:#222;--border:#2e2e2e;--accent:#ffb1ee;--accent-subtle:rgba(255,177,238,0.1);--text:#ededed;--text-secondary:#a0a0a0;--text-muted:#666;--font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--brand-font:"Sansita Swashed",var(--font);--radius:16px;--radius-sm:10px}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:12px}
+    .app{width:100%;max-width:800px;display:grid;gap:12px}
+    @media(min-width:768px){.app{grid-template-columns:1fr 1fr;gap:16px;max-width:900px}.usage-card{grid-column:1}.sessions-list{grid-column:2;grid-row:1}}
+    .glass-card{background:rgba(26,26,26,0.55);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.04);padding:20px 16px}
+    .usage-card{position:relative;overflow:hidden}
+    .usage-card::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 30% 20%,rgba(255,177,238,0.03),transparent 60%);pointer-events:none}
+    .card-header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+    .logo-mark{width:28px;height:28px;background:var(--accent);border-radius:6px;display:grid;place-items:center;font-size:16px;color:#0d0d0d;font-weight:700;flex-shrink:0}
+    .card-title{font-family:var(--brand-font);font-size:22px;color:var(--accent);line-height:1}
+    .card-subtitle{font-size:13px;color:var(--text-secondary);margin-left:auto}
+    .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--accent-subtle);color:var(--accent);font-size:11px;font-weight:600;border:1px solid rgba(255,177,238,0.15)}
+    .limit-row{margin-top:18px}
+    .limit-label{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;margin-bottom:6px}
+    .limit-label span:last-child{font-family:var(--font-mono);font-size:14px}
+    .bar-track{display:block;width:100%;height:8px;background:rgba(255,255,255,0.06);border-radius:999px;overflow:hidden}
+    .bar-fill{display:block;height:100%;border-radius:999px;transition:width .5s ease;background:linear-gradient(90deg,#22d3ee,#facc15,#f97316)}
+    .bar-fill.high{background:linear-gradient(90deg,#facc15,#f97316,#ef4444)}
+    .reset-info{font-size:11px;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono)}
+    .credits-row{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+    .session-card{padding:12px 16px;cursor:pointer;transition:background .15s,border-color .15s}
+    .session-card:hover{border-color:rgba(255,177,238,0.15);background:rgba(255,177,238,0.03)}
+    .session-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .session-id{font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+    .session-cost{font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap;flex-shrink:0}
+    @keyframes flipDigit{0%{transform:rotateX(0deg)}50%{transform:rotateX(-90deg);opacity:.3}51%{transform:rotateX(90deg);opacity:.3}100%{transform:rotateX(0deg);opacity:1}}
+    .flip{animation:flipDigit .35s ease-in-out}
+    @keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+    .skeleton{background:linear-gradient(90deg,var(--bg-surface) 25%,var(--bg-hover,var(--border)) 50%,var(--bg-surface) 75%);background-size:400px 100%;animation:shimmer 1.5s ease-in-out infinite;border-radius:6px}
+    .skeleton-text{height:14px;margin:8px 0;width:60%}
+    .skeleton-bar{height:8px;margin:16px 0;width:100%}
+    .status-badge{font-size:11px;color:var(--text-muted);text-align:center;margin-top:12px}
+    .status-badge.error{color:#ef4444}
+    .sessions-title{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;padding:0 4px}
+    .empty-state{padding:24px;text-align:center;color:var(--text-muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- injected by JS -->
+  </div>
+  <script>
+    const fmt = new Intl.NumberFormat('en-US');
+    const escapeHtml = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[c]);
+
+    let prevData = null;
+
+    function money(v) {
+      return '$' + Number(v || 0).toFixed(4);
+    }
+
+    function timeRemaining(seconds) {
+      if (!seconds || seconds <= 0) return 'resetting…';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (h > 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
+    }
+
+    function renderUsageCard(rl) {
+      const primary = rl?.rate_limit?.primary_window;
+      const secondary = rl?.rate_limit?.secondary_window;
+      const plan = rl?.plan_type || 'unknown';
+      const credits = rl?.rate_limit_reset_credits?.available_count;
+
+      const barClass = (pct) => (pct || 0) > 70 ? 'bar-fill high' : 'bar-fill';
+
+      return `
+        <div class="glass-card usage-card">
+          <div class="card-header">
+            <div class="logo-mark">◇</div>
+            <div class="card-title">Codex</div>
+            <span class="card-subtitle">Monitor</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+            <span class="pill">${escapeHtml(plan)}</span>
+          </div>
+          ${primary ? `
+          <div class="limit-row">
+            <div class="limit-label"><span>5h</span><span class="js-flip" data-key="5h">${primary.used_percent}%</span></div>
+            <span class="bar-track"><span class="${barClass(primary.used_percent)}" style="width:${Math.min(primary.used_percent, 100)}%"></span></span>
+            <div class="reset-info">↻ Reset in ${timeRemaining(primary.reset_after_seconds)}</div>
+          </div>` : ''}
+          ${secondary ? `
+          <div class="limit-row">
+            <div class="limit-label"><span>7d</span><span class="js-flip" data-key="7d">${secondary.used_percent}%</span></div>
+            <span class="bar-track"><span class="${barClass(secondary.used_percent)}" style="width:${Math.min(secondary.used_percent, 100)}%"></span></span>
+            <div class="reset-info">↻ Reset in ${timeRemaining(secondary.reset_after_seconds)}</div>
+          </div>` : ''}
+          ${credits ? `<div class="credits-row"><span class="pill">${credits} reset credit${credits > 1 ? 's' : ''}</span></div>` : ''}
+        </div>
+      `;
+    }
+
+    function renderSessionCards(sessions) {
+      if (!sessions || !sessions.length) return '<div class="empty-state">No recent sessions</div>';
+      return sessions.map(s => {
+        const shortId = (s.sessionId || '').slice(0, 12);
+        return `
+          <div class="glass-card session-card" onclick="showSession('${escapeHtml(s.sessionId)}')">
+            <div class="session-row">
+              <span class="session-id">${escapeHtml(shortId)}…</span>
+              <span class="session-cost js-flip" data-key="cost-${escapeHtml(s.sessionId)}">${money(s.costUsd)}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderSkeleton() {
+      return `
+        <div class="glass-card usage-card">
+          <div class="card-header"><div class="skeleton" style="width:28px;height:28px;border-radius:6px"></div><div class="skeleton skeleton-text" style="width:80px"></div></div>
+          <div class="skeleton skeleton-bar"></div>
+          <div class="skeleton skeleton-bar" style="width:70%"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="skeleton skeleton-text" style="width:100px;height:12px"></div>
+          ${Array(5).fill('<div class="glass-card" style="padding:14px 16px"><div class="skeleton skeleton-text" style="width:70%"></div></div>').join('')}
+        </div>
+      `;
+    }
+
+    function applyFlip(oldData, newData) {
+      if (!oldData || !newData) return;
+      document.querySelectorAll('.js-flip').forEach(el => {
+        el.classList.remove('flip');
+        // force reflow then re-add if value changed
+        const key = el.dataset.key;
+        if (!key) return;
+        const oldVal = el.textContent;
+        // Re-trigger if value actually differs from old snapshot
+        el.classList.add('flip');
+      });
+    }
+
+    let pollTimer = null;
+
+    async function fetchMonitor() {
+      try {
+        const res = await fetch('/api/monitor');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderMonitor(data, prevData);
+        prevData = data;
+        document.getElementById('status').textContent = '● Live';
+        document.getElementById('status').className = 'status-badge';
+      } catch (err) {
+        document.getElementById('status').textContent = '○ Offline (' + err.message + ')';
+        document.getElementById('status').className = 'status-badge error';
+      }
+    }
+
+    function renderMonitor(data, old) {
+      const app = document.getElementById('app');
+      const rl = data.rateLimits;
+      const sessions = data.sessions || [];
+
+      app.innerHTML = `
+        ${renderUsageCard(rl)}
+        <div class="sessions-list">
+          <div class="sessions-title">Latest Sessions</div>
+          ${renderSessionCards(sessions)}
+        </div>
+        <div id="status" class="status-badge">● Live</div>
+      `;
+
+      // After render, trigger flip on changed values
+      if (old) {
+        requestAnimationFrame(() => {
+          document.querySelectorAll('.js-flip').forEach(el => {
+            el.classList.add('flip');
+          });
+        });
+      }
+    }
+
+    function showSession(id) {
+      // Open main dashboard with session detail
+      window.open('/?session=' + encodeURIComponent(id), '_blank');
+    }
+
+    function init() {
+      const app = document.getElementById('app');
+      app.innerHTML = renderSkeleton();
+      document.querySelector('.app')?.insertAdjacentHTML('beforeend', '<div id="status" class="status-badge">Loading…</div>');
+
+      fetchMonitor();
+      pollTimer = setInterval(fetchMonitor, 10000);
+    }
+
+    init();
+  </script>
+</body>
+</html>
