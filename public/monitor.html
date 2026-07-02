@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Codex Monitor</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0d0d0d;--bg-card:#1a1a1a;--bg-surface:#222;--border:#2e2e2e;--accent:#ffb1ee;--accent-subtle:rgba(255,177,238,0.1);--text:#ededed;--text-secondary:#a0a0a0;--text-muted:#666;--font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;--brand-font:var(--font);--radius:16px;--radius-sm:10px}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:calc(12px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left))}
+    .app{width:100%;max-width:800px;display:grid;gap:12px}
+    @media(orientation:landscape) and (max-height:500px){body{padding:calc(10px + env(safe-area-inset-top)) calc(2px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(2px + env(safe-area-inset-left))}}
+    @media(min-width:768px){.app{grid-template-columns:1fr 1fr;gap:16px;max-width:900px}.usage-card{grid-column:1}.sessions-list{grid-column:2;grid-row:1}}
+    .glass-card{background:rgba(26,26,26,0.55);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.04);padding:20px 16px}
+    .usage-card{position:relative;overflow:hidden}
+    .usage-card::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 30% 20%,rgba(255,177,238,0.03),transparent 60%);pointer-events:none}
+    .card-header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+    .logo-mark{width:28px;height:28px;border-radius:6px;display:block;flex-shrink:0}
+    .card-title{font-family:var(--brand-font);font-size:22px;font-weight:600;color:var(--text);line-height:1}
+    .wordmark{width:77px;height:auto;display:block;filter:invert(1)}
+    .card-subtitle{font-size:13px;color:var(--text-secondary);margin-left:auto}
+    .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--accent-subtle);color:var(--accent);font-size:11px;font-weight:600;border:1px solid rgba(255,177,238,0.15)}
+    .limit-row{margin-top:18px}
+    .limit-label{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;margin-bottom:6px}
+    .limit-label span:last-child{font-family:var(--font-mono);font-size:14px}
+    .bar-track{display:block;width:100%;height:8px;background:rgba(255,255,255,0.06);border-radius:999px;overflow:hidden}
+    .bar-fill{display:block;height:100%;border-radius:999px;transition:width .5s ease;background:linear-gradient(90deg,#22d3ee,#facc15,#f97316)}
+    .bar-fill.high{background:linear-gradient(90deg,#facc15,#f97316,#ef4444)}
+    .reset-info{font-size:11px;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono)}
+    .credits-row{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+    .session-card{padding:12px 16px;cursor:pointer;transition:transform .36s cubic-bezier(.2,.8,.2,1),background .15s,border-color .15s}
+    .session-card.session-moving{position:relative;z-index:1}
+    .session-card:hover{border-color:rgba(255,177,238,0.15);background:rgba(255,177,238,0.03)}
+    .session-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .session-id{font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+    .session-cost{font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap;flex-shrink:0}
+    @keyframes flipDigit{0%{transform:rotateX(0deg)}50%{transform:rotateX(-90deg);opacity:.3}51%{transform:rotateX(90deg);opacity:.3}100%{transform:rotateX(0deg);opacity:1}}
+    .flip{animation:flipDigit .35s ease-in-out}
+    @keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+    .skeleton{background:linear-gradient(90deg,var(--bg-surface) 25%,var(--border) 50%,var(--bg-surface) 75%);background-size:400px 100%;animation:shimmer 1.5s ease-in-out infinite;border-radius:6px}
+    .skeleton-text{height:14px;margin:8px 0;width:60%}
+    .skeleton-bar{height:8px;margin:16px 0;width:100%}
+    .sessions-list{display:flex;flex-direction:column;gap:12px}
+    .sessions-title{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;padding:0 4px}
+    .session-preview{font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+    .empty-state{padding:24px;text-align:center;color:var(--text-muted);font-size:13px}
+    @media (prefers-reduced-motion: reduce){.session-card{transition:background .15s,border-color .15s}.flip,.skeleton{animation:none}}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- injected by JS -->
+  </div>
+  <script>
+
+    const escapeHtml = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[c]);
+
+    let prevData = null;
+    let polling = false;
+
+    function money(v) {
+      return '$' + Number(v || 0).toFixed(4);
+    }
+
+    function timeRemaining(seconds) {
+      if (!seconds || seconds <= 0) return 'resetting…';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (h > 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
+    }
+
+    function formatRemainingPercent(usedPercent) {
+      const used = Number(usedPercent || 0);
+      const remaining = remainingPercent(used);
+      const label = Number.isInteger(remaining) ? String(remaining) : remaining.toFixed(1).replace(/\.0$/, '');
+      return `${label}% left`;
+    }
+
+    function remainingPercent(usedPercent) {
+      const used = Number(usedPercent || 0);
+      return Math.max(0, Math.min(100, 100 - used));
+    }
+
+    function absoluteResetTime(seconds, includeDate = false) {
+      if (!seconds || seconds <= 0) return '';
+      const d = new Date(Date.now() + seconds * 1000);
+      const h = d.getHours();
+      const hour = String((h % 12) || 12).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const meridiem = h >= 12 ? 'PM' : 'AM';
+      const clock = `${hour}:${min} ${meridiem}`;
+      if (!includeDate) return clock;
+      const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+      return `${month} ${d.getDate()} ${clock}`;
+    }
+
+    function resetText(seconds, includeDate = false) {
+      const absolute = absoluteResetTime(seconds, includeDate);
+      return absolute ? `${timeRemaining(seconds)} (${absolute})` : timeRemaining(seconds);
+    }
+
+    function renderUsageCard(rl) {
+      const primary = rl?.rate_limit?.primary_window;
+      const secondary = rl?.rate_limit?.secondary_window;
+      const plan = rl?.plan_type || 'unknown';
+      const credits = rl?.rate_limit_reset_credits?.available_count;
+
+      const barClass = (pct) => (pct || 0) > 70 ? 'bar-fill high' : 'bar-fill';
+
+      return `
+        <div class="glass-card usage-card">
+          <div class="card-header">
+            <img class="logo-mark" src="codex-color.svg" alt="" />
+            <img class="wordmark" src="codex-text.svg" alt="Codex" />
+            <span class="card-subtitle">Monitor</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+            <span class="pill">${escapeHtml(plan)}</span>
+          </div>
+          ${primary ? `
+          <div class="limit-row">
+            <div class="limit-label"><span>5h</span><span class="js-flip" data-key="5h">${formatRemainingPercent(primary.used_percent)}</span></div>
+            <span class="bar-track"><span class="${barClass(primary.used_percent)}" style="width:${remainingPercent(primary.used_percent)}%"></span></span>
+            <div class="reset-info">↻ Reset in ${resetText(primary.reset_after_seconds)}</div>
+          </div>` : ''}
+          ${secondary ? `
+          <div class="limit-row">
+            <div class="limit-label"><span>7d</span><span class="js-flip" data-key="7d">${formatRemainingPercent(secondary.used_percent)}</span></div>
+            <span class="bar-track"><span class="${barClass(secondary.used_percent)}" style="width:${remainingPercent(secondary.used_percent)}%"></span></span>
+            <div class="reset-info">↻ Reset in ${resetText(secondary.reset_after_seconds, true)}</div>
+          </div>` : ''}
+          ${credits ? `<div class="credits-row"><span class="pill">${credits} reset credit${credits > 1 ? 's' : ''}</span></div>` : ''}
+        </div>
+      `;
+    }
+
+    function renderSessionCards(sessions) {
+      if (!sessions || !sessions.length) return '<div class="empty-state">No recent sessions</div>';
+      return sessions.map(s => {
+        const shortId = (s.sessionId || '').slice(0, 12);
+        return `
+          <div class="glass-card session-card" data-session-id="${escapeHtml(s.sessionId)}" onclick="showSession('${escapeHtml(s.sessionId)}')">
+            <div class="session-row">
+              <span class="session-id">${escapeHtml(shortId)}…</span>
+              <span class="session-cost js-flip" data-key="cost-${escapeHtml(s.sessionId)}">${money(s.costUsd)}</span>
+            </div>
+            ${s.preview ? `<div class="session-preview">${escapeHtml(s.preview)}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderSkeleton() {
+      return `
+        <div class="glass-card usage-card">
+          <div class="card-header"><div class="skeleton" style="width:28px;height:28px;border-radius:6px"></div><div class="skeleton skeleton-text" style="width:80px"></div></div>
+          <div class="skeleton skeleton-bar"></div>
+          <div class="skeleton skeleton-bar" style="width:70%"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="skeleton skeleton-text" style="width:100px;height:12px"></div>
+          ${Array(5).fill('<div class="glass-card" style="padding:14px 16px"><div class="skeleton skeleton-text" style="width:70%"></div></div>').join('')}
+        </div>
+      `;
+    }
+
+    function getSessionCardPositions() {
+      const positions = new Map();
+      document.querySelectorAll('.session-card[data-session-id]').forEach(el => {
+        positions.set(el.dataset.sessionId, el.getBoundingClientRect());
+      });
+      return positions;
+    }
+
+    function animateSessionMoves(oldPositions) {
+      if (!oldPositions?.size) return;
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return;
+
+      document.querySelectorAll('.session-card[data-session-id]').forEach(el => {
+        const oldRect = oldPositions.get(el.dataset.sessionId);
+        if (!oldRect) return;
+
+        const newRect = el.getBoundingClientRect();
+        const dx = oldRect.left - newRect.left;
+        const dy = oldRect.top - newRect.top;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+
+        el.classList.add('session-moving');
+        el.style.transition = 'transform 0s';
+        el.style.transform = `translate(${dx}px, ${dy}px)`;
+        el.getBoundingClientRect();
+
+        requestAnimationFrame(() => {
+          el.style.transition = '';
+          el.style.transform = '';
+          el.addEventListener('transitionend', () => {
+            el.classList.remove('session-moving');
+          }, { once: true });
+        });
+      });
+    }
+
+    let pollTimer = null;
+
+    async function fetchMonitor() {
+      if (polling) return;
+      polling = true;
+      try {
+        await fetch('/api/reparse', { cache: 'no-store' });
+        const res = await fetch('/api/monitor', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderMonitor(data, prevData);
+        prevData = data;
+      } catch {
+      } finally {
+        polling = false;
+      }
+    }
+
+    function renderMonitor(data, old) {
+      const app = document.getElementById('app');
+      const rl = data.rateLimits;
+      const sessions = (data.sessions || []).slice(0, 5);
+      const oldSessionPositions = getSessionCardPositions();
+
+      app.innerHTML = `
+        ${renderUsageCard(rl)}
+        <div class="sessions-list">
+          ${renderSessionCards(sessions)}
+        </div>
+      `;
+
+      // After render, trigger flip only on changed values
+      if (old) {
+        requestAnimationFrame(() => {
+          animateSessionMoves(oldSessionPositions);
+          document.querySelectorAll('.js-flip').forEach(el => {
+            const key = el.dataset.key;
+            if (!key) return;
+            const newVal = el.textContent;
+            let oldVal;
+            if (key === '5h') oldVal = formatRemainingPercent(old.rateLimits?.rate_limit?.primary_window?.used_percent);
+            else if (key === '7d') oldVal = formatRemainingPercent(old.rateLimits?.rate_limit?.secondary_window?.used_percent);
+            else if (key.startsWith('cost-')) {
+              const id = key.slice(5);
+              const s = (old.sessions || []).find(s => s.sessionId === id);
+              oldVal = s ? '$' + Number(s.costUsd || 0).toFixed(4) : undefined;
+            }
+            if (oldVal !== undefined && oldVal !== newVal) {
+              el.classList.add('flip');
+            }
+          });
+        });
+      }
+    }
+
+    function showSession(id) {
+      // Open main dashboard with session detail
+      window.open('/?session=' + encodeURIComponent(id), '_blank');
+    }
+
+    function init() {
+      const app = document.getElementById('app');
+      app.innerHTML = renderSkeleton();
+
+      fetchMonitor();
+      pollTimer = setInterval(fetchMonitor, 10000);
+    }
+
+    init();
+  </script>
+</body>
+</html>

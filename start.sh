@@ -5,6 +5,7 @@ cd "$SCRIPT_DIR"
 
 echo "=== Parsing Codex logs ==="
 node scripts/parse-codex-logs.mjs --fill=30
+node scripts/parse-claude-logs.mjs --fill=30
 
 echo "=== Starting server ==="
 node scripts/server.mjs &
