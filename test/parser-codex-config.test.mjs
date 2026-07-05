@@ -319,6 +319,145 @@ describe('Codex config scanning', () => {
     ]);
   });
 
+  it('marks internal model/reasoning sessions as assessment sessions', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-cost-lens-'));
+    const home = path.join(tmp, 'home');
+    const cwd = path.join(tmp, 'workspace');
+    const sessionDir = path.join(home, '.codex', 'sessions', '2026', '06', '23');
+    const sessionFile = path.join(sessionDir, 'rollout-2026-06-23T00-00-00-019e0000-0000-7000-8000-000000000012.jsonl');
+
+    fs.mkdirSync(path.join(cwd, 'public', 'data'), { recursive: true });
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(sessionFile, [
+      {
+        timestamp: '2026-06-23T00:00:00.000Z',
+        type: 'session_meta',
+        payload: { cwd, session_id: '019e0000-0000-7000-8000-000000000012' },
+      },
+      {
+        timestamp: '2026-06-23T00:00:01.000Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'model:GPT-5.5 medium reasoning effort' },
+      },
+      {
+        timestamp: '2026-06-23T00:00:02.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 0,
+              output_tokens: 20,
+              reasoning_output_tokens: 0,
+              total_tokens: 120,
+            },
+          },
+        },
+      },
+    ].map((event) => JSON.stringify(event)).join('\n'));
+
+    execFileSync(process.execPath, [parserScript, '--date=2026-06-23', '--date-only'], {
+      cwd,
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+      },
+      stdio: 'pipe',
+    });
+
+    const usage = JSON.parse(fs.readFileSync(path.join(cwd, 'public', 'data', 'codex-usage-2026-06-23.json'), 'utf8'));
+
+    assert.equal(usage.sessions[0].sessionType, 'assessment');
+  });
+
+  it('marks subagents from assessment parents as assessment sessions', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-cost-lens-'));
+    const home = path.join(tmp, 'home');
+    const cwd = path.join(tmp, 'workspace');
+    const sessionDir = path.join(home, '.codex', 'sessions', '2026', '06', '23');
+    const parentId = '019e0000-0000-7000-8000-000000000013';
+    const childId = '019e0000-0000-7000-8000-000000000014';
+    const parentFile = path.join(sessionDir, `rollout-2026-06-23T00-00-00-${parentId}.jsonl`);
+    const childFile = path.join(sessionDir, `rollout-2026-06-23T00-00-01-${childId}.jsonl`);
+
+    fs.mkdirSync(path.join(cwd, 'public', 'data'), { recursive: true });
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(parentFile, [
+      {
+        timestamp: '2026-06-23T00:00:00.000Z',
+        type: 'session_meta',
+        payload: { cwd, session_id: parentId, thread_source: 'user' },
+      },
+      {
+        timestamp: '2026-06-23T00:00:01.000Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'model:GPT-5.5 medium reasoning effort' },
+      },
+      {
+        timestamp: '2026-06-23T00:00:02.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 0,
+              output_tokens: 20,
+              reasoning_output_tokens: 0,
+              total_tokens: 120,
+            },
+          },
+        },
+      },
+    ].map((event) => JSON.stringify(event)).join('\n'));
+    fs.writeFileSync(childFile, [
+      {
+        timestamp: '2026-06-23T00:00:03.000Z',
+        type: 'session_meta',
+        payload: { cwd, session_id: childId, thread_source: 'subagent', parent_thread_id: parentId },
+      },
+      {
+        timestamp: '2026-06-23T00:00:04.000Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'subagent work' },
+      },
+      {
+        timestamp: '2026-06-23T00:00:05.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 0,
+              output_tokens: 20,
+              reasoning_output_tokens: 0,
+              total_tokens: 120,
+            },
+          },
+        },
+      },
+    ].map((event) => JSON.stringify(event)).join('\n'));
+
+    execFileSync(process.execPath, [parserScript, '--date=2026-06-23', '--date-only'], {
+      cwd,
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+      },
+      stdio: 'pipe',
+    });
+
+    const usage = JSON.parse(fs.readFileSync(path.join(cwd, 'public', 'data', 'codex-usage-2026-06-23.json'), 'utf8'));
+    const child = usage.sessions.find((session) => session.sessionId === childId);
+
+    assert.equal(child.parentSessionId, parentId);
+    assert.equal(child.sessionType, 'assessment');
+  });
+
   it('counts explicit skill links without counting available skill paths', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-cost-lens-'));
     const home = path.join(tmp, 'home');

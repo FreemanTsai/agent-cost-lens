@@ -250,6 +250,7 @@
     <div class="meta-bar">
       <h1 class="brand-title">Agent Cost Lens</h1>
       <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn btn-sm" onclick="window.location.href='monitor.html'">🖥️ Monitor</button>
         <button id="refreshBtn" class="btn btn-sm" onclick="refreshData()">↻ Refresh Data</button>
         <div id="meta" class="muted">Loading...</div>
       </div>
@@ -343,6 +344,11 @@
     const fmt = new Intl.NumberFormat("en-US");
     const pct = (n) => `${((n || 0) * 100).toFixed(1)}%`;
     const escapeHtml = (s) => String(s ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+    const PROVIDERS = {
+      codex: { key: "codex", label: "Codex", dataPrefix: "codex" },
+      claude: { key: "claude", label: "Claude", dataPrefix: "claude" },
+    };
+    let currentProviderKey = "codex";
 
     let charts = [];
     let appData = null;
@@ -350,6 +356,14 @@
     let searchSessions = [];
     let activePeriodKey = "today";
     let activeMainView = "stats";
+
+    function getProviderConfig() {
+      return PROVIDERS[currentProviderKey] || PROVIDERS.codex;
+    }
+
+    function getAssistantLabel() {
+      return getProviderConfig().label;
+    }
 
     function getFloatingReasonPopover() {
       let popover = document.getElementById('floatingReasonPopover');
@@ -443,16 +457,18 @@
     }
 
     function getOptimizeFileName(period) {
-      if (period === 'all' || !period) return './data/codex-optimize.json';
+      const providerConfig = getProviderConfig();
+      if (period === 'all' || !period) return `./data/${providerConfig.dataPrefix}-optimize.json`;
       const known = ['today', 'yesterday', '7days', '30days', 'month'];
-      if (known.includes(period)) return `./data/codex-optimize-${period}.json`;
+      if (known.includes(period)) return `./data/${providerConfig.dataPrefix}-optimize-${period}.json`;
       return null;
     }
 
     function getBurnFileName(period) {
-      if (period === 'all' || !period) return './data/codex-burn.json';
+      const providerConfig = getProviderConfig();
+      if (period === 'all' || !period) return `./data/${providerConfig.dataPrefix}-burn.json`;
       const known = ['today', 'yesterday', '7days', '30days', 'month'];
-      if (known.includes(period)) return `./data/codex-burn-${period}.json`;
+      if (known.includes(period)) return `./data/${providerConfig.dataPrefix}-burn-${period}.json`;
       return null;
     }
 
@@ -749,12 +765,14 @@
     }
 
     async function fetchDailyData(date) {
-      if (dailyDataMap[date]) return dailyDataMap[date];
+      const providerConfig = getProviderConfig();
+      const cacheKey = `${providerConfig.key}:${date}`;
+      if (dailyDataMap[cacheKey]) return dailyDataMap[cacheKey];
       try {
-        const res = await fetch(`./data/codex-usage-${date}.json`, { cache: "no-store" });
+        const res = await fetch(`./data/${providerConfig.dataPrefix}-usage-${date}.json`, { cache: "no-store" });
         if (!res.ok) return null;
         const data = await res.json();
-        dailyDataMap[date] = data;
+        dailyDataMap[cacheKey] = data;
         return data;
       } catch {
         return null;
@@ -962,6 +980,7 @@
 
       const sessCols = [
         { label: 'Session', key: 'sessionId', className: 'bar-label', type: 'label' },
+        { label: 'Project', key: 'projectName', className: 'bar-label' },
         { type: 'bar' },
         { label: 'Cost', render: row => money(row.costUsd), className: 'bar-num cost' },
         { label: 'Turns', render: row => fmt.format(row.turns || 0) },
@@ -1124,7 +1143,7 @@
           <summary><div class="summary-row"><div class="summary-main"><div class="summary-title summary-caret">Files (${fileRows.length})</div></div></div></summary>
           <div style="padding:8px 12px"><table>${renderSmallRows(fileRows)}</table></div>
         </details>
-        <h3>User / Codex Turns</h3>
+        <h3>User / ${escapeHtml(getAssistantLabel())} Turns</h3>
         ${renderTurnsTable(session)}
       `;
       document.getElementById("sessionDetailDialog").showModal();
@@ -1176,7 +1195,7 @@
       return normalized.length > max ? `${normalized.slice(0, max)}...` : normalized;
     }
 
-    function getTurnCodexPreview(turn) {
+    function getTurnAssistantPreview(turn) {
       const firstMessageStep = (turn.steps || []).find(step => step.message && step.role !== "user");
       return previewText(firstMessageStep?.message || "-", 180);
     }
@@ -1246,7 +1265,7 @@
       const turnSkills = topEntries(turn.skills, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
       const turnFiles = topEntries(turn.files, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join("<br>") || "-";
       const userPreview = previewText(stripSkillPrefix(turn.userMessage), 180);
-      const codexPreview = getTurnCodexPreview(turn);
+      const assistantPreview = getTurnAssistantPreview(turn);
 
       return `
         <details class="turn-card">
@@ -1255,7 +1274,7 @@
               <div class="summary-main">
                 <div class="summary-title summary-caret">Turn #${turn.turnIndex || "-"} | ${escapeHtml(turn.timestamp || turn.date || "-")}</div>
                 <div class="summary-preview">User: ${escapeHtml(userPreview)}</div>
-                <div class="summary-preview">Codex: ${escapeHtml(codexPreview)}</div>
+                <div class="summary-preview">${escapeHtml(getAssistantLabel())}: ${escapeHtml(assistantPreview)}</div>
               </div>
               <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Output ${fmt.format(turn.outputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
             </div>
@@ -1266,11 +1285,11 @@
           </div>
           ${turn.commentary && turn.commentary.length ? `
           <div class="turn-section">
-            <div class="turn-section-title">Codex Commentary</div>
+            <div class="turn-section-title">${escapeHtml(getAssistantLabel())} Commentary</div>
             ${turn.commentary.map(c => `<div class="message-block muted">${nl2br(escapeHtml(c))}</div>`).join('')}
           </div>` : ''}
           <div class="turn-section">
-            <div class="turn-section-title">Codex Work Process</div>
+            <div class="turn-section-title">${escapeHtml(getAssistantLabel())} Work Process</div>
             <div class="message-label">Tools</div>
             <div class="mono">${turnTools}</div>
             <div class="message-label">Commands</div>
@@ -1307,7 +1326,7 @@
       const turnSkills = topEntries(turn.skills, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
       const turnFiles = topEntries(turn.files, 8).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join("<br>") || "-";
       const userPreview = previewText(stripSkillPrefix(turn.userMessage), 180);
-      const codexPreview = getTurnCodexPreview(turn);
+      const assistantPreview = getTurnAssistantPreview(turn);
 
       return `
         <details class="turn-card turn-subagent">
@@ -1316,7 +1335,7 @@
               <div class="summary-main">
                 <div class="summary-title summary-caret"><span class="subagent-badge">${escapeHtml(turn.agentNickname || 'Subagent')}</span></div>
                 <div class="summary-preview">User: ${escapeHtml(userPreview)}</div>
-                <div class="summary-preview">Codex: ${escapeHtml(codexPreview)}</div>
+                <div class="summary-preview">${escapeHtml(getAssistantLabel())}: ${escapeHtml(assistantPreview)}</div>
               </div>
               <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Output ${fmt.format(turn.outputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
             </div>
@@ -1327,11 +1346,11 @@
           </div>
           ${turn.commentary && turn.commentary.length ? `
           <div class="turn-section">
-            <div class="turn-section-title">Codex Commentary</div>
+            <div class="turn-section-title">${escapeHtml(getAssistantLabel())} Commentary</div>
             ${turn.commentary.map(c => `<div class="message-block muted">${nl2br(escapeHtml(c))}</div>`).join('')}
           </div>` : ''}
           <div class="turn-section">
-            <div class="turn-section-title">Codex Work Process</div>
+            <div class="turn-section-title">${escapeHtml(getAssistantLabel())} Work Process</div>
             <div class="message-label">Tools</div>
             <div class="mono">${turnTools}</div>
             <div class="message-label">Commands</div>
@@ -1494,7 +1513,7 @@
           </tbody>
         </table>
         <div class="muted" style="margin-top:8px">
-          ${escapeHtml(attr.note || "Note: Codex log does not directly record individual token consumption per tool/skill.")}
+          ${escapeHtml(attr.note || `Note: ${getAssistantLabel()} log does not directly record individual token consumption per tool/skill.`)}
         </div>
       `;
     }
@@ -1525,7 +1544,8 @@
 
     async function loadUsageDate(date = document.getElementById("dateSelect")?.value || getTodayString()) {
       const targetDate = date || getTodayString();
-      const fileName = `./data/codex-usage-${targetDate}.json`;
+      const providerConfig = getProviderConfig();
+      const fileName = `./data/${providerConfig.dataPrefix}-usage-${targetDate}.json`;
       const meta = document.getElementById("meta");
       meta.textContent = `Loading ${fileName}...`;
 

@@ -33,7 +33,7 @@ describe('release readiness', () => {
 
   it('binds the local server to loopback by default', () => {
     const source = read('scripts/server.mjs');
-    assert.match(source, /HOST\s*=\s*process\.env\.HOST\s*\|\|\s*'127\.0\.0\.1'/);
+    assert.match(source, /HOST\s*=\s*process\.env\.HOST\s*\|\|\s*["']127\.0\.0\.1["']/);
     assert.match(source, /\.listen\(PORT,\s*HOST,/);
   });
 });

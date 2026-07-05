@@ -46,13 +46,15 @@ function walk(dir) {
   let results = [];
   if (!fs.existsSync(dir)) return results;
 
-  for (const name of fs.readdirSync(dir)) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const name = entry.name;
     const full = path.join(dir, name);
-    const stat = fs.statSync(full);
 
-    if (stat.isDirectory()) {
+    if (entry.isDirectory()) {
       results.push(...walk(full));
-    } else if (name.endsWith('.jsonl') && isFilePossiblyRelevant(full, stat)) {
+    } else if (name.endsWith('.jsonl')) {
+      const stat = fs.statSync(full);
+      if (!isFilePossiblyRelevant(full, stat)) continue;
       results.push(full);
     }
   }
@@ -519,6 +521,12 @@ function isUserMessage(event) {
   return event.type === 'event_msg' && event.payload?.type === 'user_message';
 }
 
+function isAssessmentPrompt(text) {
+  const normalized = String(text || '').trim().toLowerCase();
+  return normalized.startsWith('the following is the codex agent history')
+    || /^model:\s*gpt-[\w.-]+(?:\s+[\w.-]+)*\s+reasoning\s+effort\b/.test(normalized);
+}
+
 function isSystemUserMessage(event) {
   return event.type === 'response_item' && event.payload?.type === 'message' && event.payload?.role === 'user';
 }
@@ -607,6 +615,13 @@ function extractWaitAgentTargets(event) {
   } catch { return []; }
 }
 
+function extractParentSessionId(payload = {}) {
+  return payload.parent_thread_id
+    || payload.forked_from_id
+    || payload.source?.subagent?.thread_spawn?.parent_thread_id
+    || null;
+}
+
 function extractUserMessageText(event) {
   if (event.type === 'event_msg' && event.payload?.message) {
     return event.payload.message;
@@ -674,6 +689,7 @@ function ensureSession(map, sessionId, file) {
       _isAssessment: false,
       isSubagent: false,
       forkedFromId: null,
+      parentSessionId: null,
       agentNickname: null,
       agentRole: null,
       forkCutoff: null,
@@ -895,7 +911,9 @@ for (const file of files) {
 
     if (event.type === 'session_meta') {
       session.isSubagent = event.payload?.thread_source === 'subagent';
-      session.forkedFromId = event.payload?.forked_from_id || null;
+      session.threadSource = event.payload?.thread_source || null;
+      session.forkedFromId = event.payload?.forked_from_id || session.forkedFromId;
+      session.parentSessionId = extractParentSessionId(event.payload) || session.parentSessionId;
       session.agentNickname = event.payload?.agent_nickname
         || event.payload?.source?.subagent?.thread_spawn?.agent_nickname
         || null;
@@ -916,6 +934,10 @@ for (const file of files) {
 
     if (session.forkCutoff && event.timestamp && event.timestamp < session.forkCutoff) continue;
 
+    if (isFunctionCallOutput(event)) {
+      continue;
+    }
+
     const detectedWorkdir = extractWorkdir(event);
     const detectedProjectName = projectNameFromPath(detectedWorkdir) || 'unknown';
     if (detectedProjectName && detectedProjectName !== 'unknown') session.projectName = detectedProjectName;
@@ -928,7 +950,7 @@ for (const file of files) {
 
     if (isUserMessage(event)) {
       const text = extractUserMessageText(event) || extractConversationText(event) || '';
-      if (!session._isAssessment && !session.turns.length && text.startsWith('The following is the Codex agent history')) {
+      if (!session._isAssessment && !session.turns.length && isAssessmentPrompt(text)) {
         session._isAssessment = true;
       }
       startNewTurn(session, text, date, event.timestamp);
@@ -1008,10 +1030,6 @@ for (const file of files) {
       const changes = event.payload?.changes;
       const filePaths = typeof changes === 'object' && changes ? Object.keys(changes) : [];
       accumulateStepContext(session, ['Edit'], [], [], filePaths);
-      continue;
-    }
-
-    if (isFunctionCallOutput(event)) {
       continue;
     }
 
@@ -1117,8 +1135,14 @@ const sortedSessions = sessionList.sort((a, b) => b.totalTokens - a.totalTokens)
 const _sessionById = {};
 for (const s of sortedSessions) {
   _sessionById[s.sessionId] = s;
-  s.parentSessionId = _childToParent[s.sessionId] || null;
+  s.parentSessionId = s.parentSessionId || _childToParent[s.sessionId] || null;
   s.sessionType = s._isAssessment ? 'assessment' : 'normal';
+}
+for (const s of sortedSessions) {
+  const parent = _sessionById[s.parentSessionId];
+  if (s.isSubagent && parent?.sessionType === 'assessment') {
+    s.sessionType = 'assessment';
+  }
 }
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'FileEditTool', 'FileWriteTool', 'NotebookEdit']);
@@ -1329,6 +1353,8 @@ function emptyOptimizeReport() {
 function writeOptimizeReport(filename) {
   fs.writeFileSync(path.join(DATA_DIR, filename), JSON.stringify(emptyOptimizeReport(), null, 2));
 }
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
 
 writeOptimizeReport('codex-optimize.json');
 writeBurnReport(sortedSessions, 'codex-burn.json');
@@ -1701,8 +1727,6 @@ function buildResultForDate(date) {
     sessions: sessionsForDate,
   };
 }
-
-fs.mkdirSync(DATA_DIR, { recursive: true });
 
 let outputDates = RUN_DATE_ONLY
   ? [TARGET_DATE]

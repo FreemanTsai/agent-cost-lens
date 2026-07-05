@@ -14,6 +14,7 @@ Analyze Codex / Code‑based AI agent session logs (`*.jsonl`) — visualize tok
   - **Stats** — cost, token volumes, cache rates grouped by project, model, tool, skill, and session
   - **Search** — full‑text search across sessions, with session detail drill‑down (turns, steps, sub‑agents)
   - **Optimize** — Cost Lens scoring for sessions with likely token burn
+- **Monitor** — live dashboard for current rate limits, spend, cache efficiency, and latest sessions
 - **Cost estimation** — per‑model pricing (GPT‑5.5 / 5.4 / 5.4 Mini), accounts for cached vs uncached input tokens
 - **No database** — works entirely with static JSON files; no server‑side storage needed
 
@@ -34,6 +35,13 @@ cd agent-cost-lens
 bash start.sh
 ```
 
+`start.sh` parses recent logs, starts the server on `0.0.0.0:8080`, and opens the dashboard. Other devices on the same network can connect with your machine's LAN IP:
+
+```bash
+ipconfig getifaddr en0
+# then open http://<LAN-IP>:8080
+```
+
 Or step by step:
 
 ```bash
@@ -45,6 +53,12 @@ node scripts/server.mjs
 ```
 
 Open [http://localhost:8080](http://localhost:8080) in your browser.
+
+To bind the server manually:
+
+```bash
+HOST=0.0.0.0 PORT=8080 node scripts/server.mjs
+```
 
 ### CLI Flags
 
@@ -62,7 +76,7 @@ node scripts/parse-codex-logs.mjs --all                # Process all available l
 .
 ├── scripts/
 │   ├── parse-codex-logs.mjs    # Main parser — reads .jsonl, writes daily JSON + Cost Lens report
-│   └── server.mjs              # Static file server (no framework required)
+│   └── server.mjs              # Static file server + refresh API (no framework required)
 ├── start.sh                    # One‑command launch (parse + serve + open browser)
 ├── package.json
 ├── LICENSE                     # MIT license
@@ -71,9 +85,23 @@ node scripts/parse-codex-logs.mjs --all                # Process all available l
 │   └── server.test.mjs         # Server integration tests
 ├── public/
 │   ├── index.html                              # Dashboard (Stats + Search + Optimize)
+│   ├── monitor.html                            # Live monitor
 │   └── data/                                   # Generated usage data (git‑ignored)
 └── DESIGN.md                   # Design system reference
 ```
+
+---
+
+## Live Monitor
+
+Open [http://localhost:8080/monitor.html](http://localhost:8080/monitor.html) for a live view of:
+
+- current rate limit windows
+- estimated spend and token usage
+- cache hit rate
+- latest sessions with drill‑down details
+
+The monitor refreshes data through the local server and uses the generated JSON files in `public/data/`.
 
 ---
 

@@ -5,8 +5,10 @@ cd "$SCRIPT_DIR"
 
 echo "=== Parsing Codex logs ==="
 node scripts/parse-codex-logs.mjs --fill=30
+node scripts/parse-claude-logs.mjs --fill=30
 
 echo "=== Starting server ==="
+export HOST="${HOST:-0.0.0.0}"
 node scripts/server.mjs &
 SERVER_PID=$!
 sleep 1

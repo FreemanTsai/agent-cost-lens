@@ -11,6 +11,7 @@
   - **統計** — 按專案、模型、工具、技能、session 分組顯示成本、Token 用量、快取率
   - **搜尋** — 全文搜尋 session，可逐層下鑽查看 Turn / Step / 子代理細節
   - **優化建議** — 使用 Cost Lens 分數找出可能有 Token burn 的 session
+- **即時監控** — 顯示目前 rate limit、花費、快取效率與最新 session
 - **成本估算** — 依模型定價（GPT‑5.5 / 5.4 / 5.4 Mini），區分快取與非快取 Input Token
 - **無資料庫** — 完全依賴靜態 JSON 檔，無需伺服器端儲存
 
@@ -31,6 +32,13 @@ cd agent-cost-lens
 bash start.sh
 ```
 
+`start.sh` 會解析近期 log、用 `0.0.0.0:8080` 啟動伺服器，並開啟儀表板。同一個區網內的其他裝置可以用這台機器的 LAN IP 連線：
+
+```bash
+ipconfig getifaddr en0
+# 然後開啟 http://<LAN-IP>:8080
+```
+
 或逐步執行：
 
 ```bash
@@ -42,6 +50,12 @@ node scripts/server.mjs
 ```
 
 在瀏覽器中開啟 [http://localhost:8080](http://localhost:8080)。
+
+手動指定伺服器綁定位置：
+
+```bash
+HOST=0.0.0.0 PORT=8080 node scripts/server.mjs
+```
 
 ### CLI 參數
 
@@ -59,7 +73,7 @@ node scripts/parse-codex-logs.mjs --all                # 處理所有可用 log 
 .
 ├── scripts/
 │   ├── parse-codex-logs.mjs    # 主要解析器 — 讀取 .jsonl，產生每日 JSON + Cost Lens 報告
-│   └── server.mjs              # 靜態檔案伺服器（無需框架）
+│   └── server.mjs              # 靜態檔案伺服器 + refresh API（無需框架）
 ├── start.sh                    # 一鍵啟動（解析 + 伺服器 + 開啟瀏覽器）
 ├── package.json
 ├── LICENSE                     # MIT 授權
@@ -68,9 +82,23 @@ node scripts/parse-codex-logs.mjs --all                # 處理所有可用 log 
 │   └── server.test.mjs         # 伺服器整合測試
 ├── public/
 │   ├── index.html                              # 儀表板（統計 + 搜尋 + 優化建議）
+│   ├── monitor.html                            # 即時監控
 │   └── data/                                   # 每日用量資料（自動產生，git 忽略）
 └── DESIGN.md                   # 設計系統參考
 ```
+
+---
+
+## 即時監控
+
+開啟 [http://localhost:8080/monitor.html](http://localhost:8080/monitor.html) 可以即時查看：
+
+- 目前 rate limit 視窗
+- 預估花費與 Token 用量
+- 快取命中率
+- 最新 session 與下鑽細節
+
+監控頁會透過本機伺服器刷新資料，並使用 `public/data/` 中產生的 JSON 檔。
 
 ---
 
