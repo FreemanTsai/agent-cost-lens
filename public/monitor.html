@@ -264,22 +264,52 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 12px;
+        gap: 0;
       }
       .session-id {
         font-family: var(--font-mono);
         font-size: 12px;
         color: var(--text-secondary);
+        flex: 0 1 auto;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         min-width: 0;
+      }
+      .session-context {
+        align-items: center;
+        display: flex;
+        flex: 0 0 92px;
+        gap: 6px;
+        margin-left: 10px;
+      }
+      .session-context-bar {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        display: block;
+        height: 6px;
+        overflow: hidden;
+        width: 56px;
+      }
+      .session-context-fill {
+        background: #737373;
+        border-radius: inherit;
+        display: block;
+        height: 100%;
+        transition: width 0.5s ease;
+      }
+      .session-context-value {
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        white-space: nowrap;
       }
       .session-cost {
         font-family: var(--font-mono);
         font-size: 15px;
         font-weight: 700;
         color: var(--accent);
+        margin-left: auto;
         white-space: nowrap;
         flex-shrink: 0;
       }
@@ -732,11 +762,24 @@
           </div>`;
       }
 
+      function rateLimitLabel(window, fallback) {
+        const minutes = Number(
+          window?.window_minutes ?? window?.limit_window_seconds / 60,
+        );
+        if (minutes === 300) return "5h";
+        if (minutes === 10080) return "weekly";
+        return fallback;
+      }
+
       function renderUsageCard(rl) {
         const primary = rl?.rate_limit?.primary_window;
         const secondary = rl?.rate_limit?.secondary_window;
+        const primaryLabel = rateLimitLabel(primary, "5h");
+        const secondaryLabel = rateLimitLabel(secondary, "weekly");
         const sparkLimit = findSparkRateLimit(rl);
         const spark = sparkLimit?.rate_limit;
+        const sparkPrimaryLabel = rateLimitLabel(spark?.primary_window, "5h");
+        const sparkSecondaryLabel = rateLimitLabel(spark?.secondary_window, "weekly");
         const sparkTitle = sparkLimit?.limit_name || "GPT-5.3-Codex-Spark";
         const hasAdditionalModelLimit = Boolean(spark);
         const plan = rl?.plan_type || "unknown";
@@ -753,29 +796,49 @@
             <span class="pill">${escapeHtml(plan)}</span>
           </div>
           ${renderLimitGroup(null, [
-            renderLimitRow("5h", "5h", primary),
-            renderLimitRow("weekly", "7d", secondary, true),
+            renderLimitRow(primaryLabel, "5h", primary, primaryLabel === "weekly"),
+            renderLimitRow(secondaryLabel, "7d", secondary, secondaryLabel === "weekly"),
           ])}
           ${renderLimitGroup(sparkTitle, [
-            renderLimitRow("5h", "5.3-5h", spark?.primary_window),
-            renderLimitRow("weekly", "5.3-weekly", spark?.secondary_window, true),
+            renderLimitRow(sparkPrimaryLabel, "5.3-5h", spark?.primary_window, sparkPrimaryLabel === "weekly"),
+            renderLimitRow(sparkSecondaryLabel, "5.3-weekly", spark?.secondary_window, sparkSecondaryLabel === "weekly"),
           ])}
           ${credits ? `<div class="credits-row"><span class="pill">${credits} reset credit${credits > 1 ? "s" : ""}</span></div>` : ""}
         </div>
       `;
       }
 
-      function renderSessionCards(sessions) {
+      function changedSessionIds(sessions, old) {
+        const oldCosts = new Map(
+          (old?.sessions || []).map((s) => [s.sessionId, money(s.costUsd)]),
+        );
+        return new Set(
+          (sessions || [])
+            .filter((s) => oldCosts.has(s.sessionId) && oldCosts.get(s.sessionId) !== money(s.costUsd))
+            .map((s) => s.sessionId),
+        );
+      }
+
+      function renderSessionCards(sessions, changedSessions = new Set()) {
         if (!sessions || !sessions.length)
           return '<div class="empty-state">No recent sessions</div>';
         return sessions
           .map((s) => {
             const shortId = (s.sessionId || "").slice(0, 12);
+            const costChanged = changedSessions.has(s.sessionId);
+            const hasContext = s.contextRemainingPercent != null;
+            const contextRemaining = hasContext
+              ? Math.max(0, Math.min(100, Math.trunc(Number(s.contextRemainingPercent))))
+              : null;
+            const contextTitle = hasContext
+              ? `${fmt(s.contextUsedTokens)} of ${fmt(s.contextWindowTokens)} tokens used · ${contextRemaining}% left`
+              : "";
             return `
           <div class="glass-card session-card" data-session-id="${escapeHtml(s.sessionId)}" onclick="showSession('${escapeHtml(s.sessionId)}')">
             <div class="session-row">
               <span class="session-id">${escapeHtml(shortId)}…</span>
-              <span class="session-cost js-flip" data-key="cost-${escapeHtml(s.sessionId)}">${money(s.costUsd)}</span>
+              ${hasContext ? `<span class="session-context" title="${escapeHtml(contextTitle)}"><span class="session-context-bar"><span class="session-context-fill" style="width:${contextRemaining}%"></span></span><span class="session-context-value">${contextRemaining}%</span></span>` : ""}
+              <span class="session-cost${costChanged ? " js-flip" : ""}"${costChanged ? ` data-key="cost-${escapeHtml(s.sessionId)}"` : ""}>${money(s.costUsd)}</span>
             </div>
             ${s.preview ? `<div class="session-preview">${escapeHtml(s.preview)}</div>` : ""}
           </div>
@@ -808,7 +871,7 @@
         return positions;
       }
 
-      function animateSessionMoves(oldPositions) {
+      function animateSessionMoves(oldPositions, changedSessions = new Set()) {
         if (!oldPositions?.size) return;
         if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
           return;
@@ -816,6 +879,7 @@
         document
           .querySelectorAll(".session-card[data-session-id]")
           .forEach((el) => {
+            if (!changedSessions.has(el.dataset.sessionId)) return;
             const oldRect = oldPositions.get(el.dataset.sessionId);
             if (!oldRect) return;
 
@@ -866,18 +930,19 @@
         const rl = data.rateLimits;
         const sessions = (data.sessions || []).slice(0, 5);
         const oldSessionPositions = getSessionCardPositions();
+        const changedSessions = changedSessionIds(sessions, old);
 
         app.innerHTML = `
         ${renderUsageCard(rl)}
         <div class="sessions-list">
-          ${renderSessionCards(sessions)}
+          ${renderSessionCards(sessions, changedSessions)}
         </div>
       `;
 
         // After render, trigger flip only on changed values
         if (old) {
           requestAnimationFrame(() => {
-            animateSessionMoves(oldSessionPositions);
+            animateSessionMoves(oldSessionPositions, changedSessions);
             document.querySelectorAll(".js-flip").forEach((el) => {
               const key = el.dataset.key;
               if (!key) return;

@@ -244,6 +244,20 @@ function refreshClaudeMonitorDataIfStale() {
   return claudeMonitorReparsePromise;
 }
 
+function latestSessionTimestamp(session) {
+  let latest = "";
+  for (const turn of session.turns || []) {
+    if ((turn.timestamp || "") > latest) latest = turn.timestamp;
+    for (const step of turn.steps || []) {
+      if ((step.timestamp || "") > latest) latest = step.timestamp;
+    }
+  }
+  for (const step of session.steps || []) {
+    if ((step.timestamp || "") > latest) latest = step.timestamp;
+  }
+  return latest;
+}
+
 async function getRecentSessions(provider) {
   const sessionFiles = await Promise.all(
     getRecentDailyFiles(publicDir, provider).map((f) =>
@@ -253,26 +267,31 @@ async function getRecentSessions(provider) {
         .catch(() => null),
     ),
   );
-  return sessionFiles
+  const sessionMap = new Map();
+  const sessions = sessionFiles
     .filter(Boolean)
     .flatMap((d) => d.sessions || [])
-    .filter((s) => s.sessionType !== "assessment" && !s.parentSessionId)
-    .map((s) => {
-      const lastTs = (s.turns || []).reduce((max, t) => {
-        const ts = t.timestamp || "";
-        return ts > max ? ts : max;
-      }, "");
-      const firstMsg = s.turns?.find((t) => t.userMessage)?.userMessage || "";
-      const preview = firstMsg
-        .replace(/^\[[^\]]+\]\([^)]+\)\s*/, "")
-        .slice(0, 40);
-      return {
-        sessionId: s.sessionId,
-        costUsd: s.costUsd,
-        lastTimestamp: lastTs,
-        preview,
-      };
-    })
+    .filter((s) => s.sessionType !== "assessment" && !s.parentSessionId);
+  for (const session of sessions) {
+    const firstMsg = session.turns?.find((t) => t.userMessage)?.userMessage || "";
+    const preview = firstMsg
+      .replace(/^\[[^\]]+\]\([^)]+\)\s*/, "")
+      .slice(0, 40);
+    const row = {
+      sessionId: session.sessionId,
+      costUsd: session.costUsd,
+      contextWindowTokens: session.contextWindowTokens,
+      contextUsedTokens: session.contextUsedTokens,
+      contextRemainingPercent: session.contextRemainingPercent,
+      lastTimestamp: latestSessionTimestamp(session),
+      preview,
+    };
+    const existing = sessionMap.get(session.sessionId);
+    if (!existing || row.lastTimestamp > existing.lastTimestamp)
+      sessionMap.set(session.sessionId, row);
+  }
+
+  return [...sessionMap.values()]
     .sort((a, b) => b.lastTimestamp.localeCompare(a.lastTimestamp))
     .slice(0, 5);
 }

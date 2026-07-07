@@ -28,6 +28,10 @@ const defaultRangeDays = RUN_FILL ? FILL_DAYS : 6;
 analysisStart.setUTCDate(analysisStart.getUTCDate() - defaultRangeDays);
 
 const MODEL_PRICING_USD_PER_1M = {
+  'gpt-5.6': { input: 5, cachedInput: 0.5, output: 30 },
+  'gpt-5.6-sol': { input: 5, cachedInput: 0.5, output: 30 },
+  'gpt-5.6-terra': { input: 2.5, cachedInput: 0.25, output: 15 },
+  'gpt-5.6-luna': { input: 1, cachedInput: 0.1, output: 6 },
   'gpt-5.5': { input: 5, cachedInput: 0.5, output: 30 },
   'gpt-5.5-medium': { input: 5, cachedInput: 0.5, output: 30 },
   'gpt-5.5-extra-high': { input: 5, cachedInput: 0.5, output: 30 },
@@ -693,6 +697,7 @@ function ensureSession(map, sessionId, file) {
       agentNickname: null,
       agentRole: null,
       forkCutoff: null,
+      _contextByDate: {},
       prevCumulativeTotal: null,
       prevInput: 0,
       prevCached: 0,
@@ -811,6 +816,17 @@ function handleTokenCount(event, session, day, date, detectedModel) {
   const output = usage.output_tokens || 0;
   const reasoning = usage.reasoning_output_tokens || 0;
   const total = usage.total_tokens || input + output;
+  const contextWindowTokens = Number(event.payload?.info?.model_context_window || 0);
+  if (contextWindowTokens > 0) {
+    const contextUsedTokens = Math.max(0, Number(total || 0) - reasoning);
+    session._contextByDate[date] = {
+      contextWindowTokens,
+      contextUsedTokens,
+      contextRemainingPercent: Math.trunc(
+        Math.max(0, Math.min(100, 100 - (contextUsedTokens / contextWindowTokens) * 100)),
+      ),
+    };
+  }
   const model = (detectedModel && detectedModel !== 'unknown') || session._currentModel || (session._currentTurn?.model) || 'unknown';
   const costUsd = estimateCostUsd({ inputTokens: input, cachedInputTokens: cached, outputTokens: output, model });
 
@@ -1555,6 +1571,7 @@ function buildResultForDate(date) {
   const day = days.find((item) => item.date === date);
   const sessionsForDate = sortedSessions
     .map((session) => {
+      const context = session._contextByDate?.[date];
       const parentTurns = [];
       for (const turn of (session.turns || [])) {
         if (turn.date !== date) continue;
@@ -1651,6 +1668,9 @@ function buildResultForDate(date) {
         agentNickname: session.agentNickname || null,
         agentRole: session.agentRole || null,
         baseContextTokens: (session.turns?.[0]?.steps?.[0]?.effectiveInputTokens) || 0,
+        contextWindowTokens: context?.contextWindowTokens,
+        contextUsedTokens: context?.contextUsedTokens,
+        contextRemainingPercent: context?.contextRemainingPercent,
       });
 
       for (const turn of turns) {

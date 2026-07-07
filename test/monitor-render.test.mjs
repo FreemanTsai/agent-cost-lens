@@ -81,12 +81,63 @@ describe('Monitor rendering', () => {
   it('animates session card reordering', () => {
     assert.match(monitorHtml, /data-session-id="\$\{escapeHtml\(s\.sessionId\)\}"/);
     assert.match(monitorHtml, /function getSessionCardPositions\(\)/);
-    assert.match(monitorHtml, /function animateSessionMoves\(oldPositions\)/);
+    assert.match(monitorHtml, /function animateSessionMoves\(oldPositions,\s*changedSessions = new Set\(\)\)/);
     assert.match(monitorHtml, /const oldSessionPositions = getSessionCardPositions\(\);/);
-    assert.match(monitorHtml, /animateSessionMoves\(oldSessionPositions\);/);
+    assert.match(monitorHtml, /animateSessionMoves\(oldSessionPositions,\s*changedSessions\);/);
+    assert.match(monitorHtml, /if \(!changedSessions\.has\(el\.dataset\.sessionId\)\) return;/);
     assert.match(monitorHtml, /\.session-card\s*\{[^}]*transition:[^}]*transform 0\.36s cubic-bezier\(0\.2,\s*0\.8,\s*0\.2,\s*1\)[^}]*background 0\.15s[^}]*border-color 0\.15s/);
     assert.match(monitorHtml, /\.session-card\.session-moving\s*\{/);
     assert.match(monitorHtml, /prefers-reduced-motion: reduce/);
+  });
+
+  it('marks only sessions with changed cost as active updates', () => {
+    const { changedSessionIds } = loadMonitorScript();
+    const changed = changedSessionIds(
+      [
+        { sessionId: 'a', costUsd: 2 },
+        { sessionId: 'b', costUsd: 1 },
+        { sessionId: 'c', costUsd: 3 },
+      ],
+      {
+        sessions: [
+          { sessionId: 'b', costUsd: 1 },
+          { sessionId: 'a', costUsd: 1 },
+          { sessionId: 'c', costUsd: 3 },
+        ],
+      },
+    );
+
+    assert.deepEqual([...changed], ['a']);
+  });
+
+  it('renders remaining context beside the session id', () => {
+    const { renderSessionCards } = loadMonitorScript();
+    const html = renderSessionCards([{
+      sessionId: '019e0000-0000-7000-8000-000000000001',
+      costUsd: 1.25,
+      contextWindowTokens: 100000,
+      contextUsedTokens: 31000,
+      contextRemainingPercent: 69,
+    }]);
+
+    assert.match(html, /class="session-context"/);
+    assert.match(html, /class="session-context-bar"/);
+    assert.match(html, /style="width:69%"/);
+    assert.match(html, />69%<\/span>/);
+    assert.match(monitorHtml, /\.session-context\s*\{[^}]*margin-left:\s*10px/);
+    assert.match(monitorHtml, /\.session-context-fill\s*\{[^}]*background:\s*#737373/);
+    assert.match(monitorHtml, /\.session-cost\s*\{[^}]*margin-left:\s*auto/);
+    assert.doesNotMatch(monitorHtml, /\.session-context-fill\s*\{[^}]*background:\s*var\(--accent\)/);
+  });
+
+  it('omits the context bar when older session data has no context window', () => {
+    const { renderSessionCards } = loadMonitorScript();
+    const html = renderSessionCards([{
+      sessionId: '019e0000-0000-7000-8000-000000000001',
+      costUsd: 1.25,
+    }]);
+
+    assert.doesNotMatch(html, /class="session-context"/);
   });
 
   it('reparses session data before polling monitor data', () => {
@@ -194,6 +245,28 @@ describe('Monitor rendering', () => {
     assert.match(html, /Reset in 4d 5h \(Jul 7 01:42 AM\)/);
     assert.doesNotMatch(html, /usage-card compact/);
     assert.doesNotMatch(html, /limit-group-title/);
+  });
+
+  it('labels a primary weekly window from its parsed duration', () => {
+    const { rateLimitLabel, renderUsageCard } = loadMonitorScript();
+    assert.equal(rateLimitLabel({ window_minutes: 10080 }, '5h'), 'weekly');
+    assert.equal(rateLimitLabel({ limit_window_seconds: 604800 }, '5h'), 'weekly');
+    const html = renderUsageCard({
+      plan_type: 'prolite',
+      rate_limit: {
+        primary_window: {
+          used_percent: 12,
+          window_minutes: 10080,
+          limit_window_seconds: 604800,
+          reset_after_seconds: (4 * 24 * 3600) + (5 * 3600),
+        },
+        secondary_window: null,
+      },
+    });
+
+    assert.match(html, /<span>weekly<\/span><span class="js-flip" data-key="5h">88% left<\/span>/);
+    assert.doesNotMatch(html, /<span>5h<\/span>/);
+    assert.match(html, /Reset in 4d 5h \(Jul 7 01:42 AM\)/);
   });
 
   it('shows separate GPT-5.3 Spark rate limits from additional limits', () => {

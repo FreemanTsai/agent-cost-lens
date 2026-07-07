@@ -27,7 +27,21 @@ describe('Monitor data refresh', () => {
   });
 
   it('excludes Codex assessment and subagent child sessions from the monitor list', () => {
-    assert.match(serverSource, /\.flatMap\(\(?d\)? => d\.sessions \|\| \[\]\)[\s\S]*\.filter\(\(?s\)? => s\.sessionType !== ["']assessment["'] && !s\.parentSessionId\)[\s\S]*\.map\(\(?s\)? => \{/);
+    assert.match(serverSource, /\.flatMap\(\(?d\)? => d\.sessions \|\| \[\]\)[\s\S]*\.filter\(\(?s\)? => s\.sessionType !== ["']assessment["'] && !s\.parentSessionId\);/);
+  });
+
+  it('dedupes cross-day sessions and sorts by latest step activity', () => {
+    assert.match(serverSource, /function latestSessionTimestamp\(session\)/);
+    assert.match(serverSource, /for \(const step of turn\.steps \|\| \[\]\)/);
+    assert.match(serverSource, /const sessionMap = new Map\(\);/);
+    assert.match(serverSource, /sessionMap\.set\(session\.sessionId,\s*row\);/);
+    assert.match(serverSource, /\[\.\.\.sessionMap\.values\(\)\][\s\S]*\.sort\(\(a, b\) => b\.lastTimestamp\.localeCompare\(a\.lastTimestamp\)\)/);
+  });
+
+  it('includes current context usage in monitor session rows', () => {
+    assert.match(serverSource, /contextWindowTokens:\s*session\.contextWindowTokens/);
+    assert.match(serverSource, /contextUsedTokens:\s*session\.contextUsedTokens/);
+    assert.match(serverSource, /contextRemainingPercent:\s*session\.contextRemainingPercent/);
   });
 
   it('serves full Codex session detail by session id', () => {

@@ -98,9 +98,10 @@ describe('Codex config scanning', () => {
               input_tokens: 30000,
               cached_input_tokens: 0,
               output_tokens: 1000,
-              reasoning_output_tokens: 0,
+              reasoning_output_tokens: 1000,
               total_tokens: 31000,
             },
+            model_context_window: 100000,
           },
         },
       },
@@ -117,8 +118,12 @@ describe('Codex config scanning', () => {
     });
 
     const usage = JSON.parse(fs.readFileSync(path.join(cwd, 'public', 'data', 'codex-usage-2026-06-23.json'), 'utf8'));
+    const session = usage.sessions[0];
     const turn = usage.sessions[0].turns[0];
 
+    assert.equal(session.contextWindowTokens, 100000);
+    assert.equal(session.contextUsedTokens, 30000);
+    assert.equal(session.contextRemainingPercent, 70);
     assert.equal(usage.days[0].commands.rg, 1);
     assert.equal(usage.days[0].commands['go test'], 1);
     assert.equal(turn.tools.Bash, 1);
