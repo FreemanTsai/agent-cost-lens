@@ -12,7 +12,7 @@
   - **搜尋** — 全文搜尋 session，可逐層下鑽查看 Turn / Step / 子代理細節
   - **優化建議** — 使用 Cost Lens 分數找出可能有 Token burn 的 session
 - **即時監控** — 顯示目前 rate limit、花費、快取效率與最新 session
-- **成本估算** — 依模型定價（GPT‑5.5 / 5.4 / 5.4 Mini），區分快取與非快取 Input Token
+- **成本估算** — 依模型定價（GPT‑5.6 Sol / Terra / Luna、GPT‑5.5 / 5.4），區分快取讀取、快取寫入與非快取 Input Token
 - **無資料庫** — 完全依賴靜態 JSON 檔，無需伺服器端儲存
 
 ---
@@ -62,6 +62,7 @@ HOST=0.0.0.0 PORT=8080 node scripts/server.mjs
 ```bash
 node scripts/parse-codex-logs.mjs --date=2026-06-15    # 只處理指定日期
 node scripts/parse-codex-logs.mjs --date-only          # 跳過優化分析，只產生每日 JSON
+node scripts/parse-codex-logs.mjs --fill=30             # 重新產生最近 30 天資料
 node scripts/parse-codex-logs.mjs --all                # 處理所有可用 log 檔
 ```
 
@@ -120,13 +121,16 @@ node scripts/parse-codex-logs.mjs --all                # 處理所有可用 log 
 
 ## 定價
 
-| 模型            | Input ($/1M tok) | Cached ($/1M tok) | Output ($/1M tok) |
-|-----------------|------------------:|-------------------:|-------------------:|
-| GPT‑5.5         |              5.00 |               0.50 |              30.00 |
-| GPT‑5.4         |              2.50 |               0.25 |              15.00 |
-| GPT‑5.4 Mini    |              0.75 |               0.075 |               4.50 |
+| 模型              | Input ($/1M tok) | Cached read ($/1M tok) | Cache write ($/1M tok) | Output ($/1M tok) |
+|------------------|------------------:|-----------------------:|------------------------:|------------------:|
+| GPT‑5.6 Sol      |              4.00 |                   0.40 |                    5.00 |             20.00 |
+| GPT‑5.6 Terra    |              2.00 |                   0.20 |                    2.50 |             12.00 |
+| GPT‑5.6 Luna     |              0.20 |                   0.02 |                    0.25 |              1.20 |
+| GPT‑5.5          |              5.00 |                   0.50 |                    6.25 |             30.00 |
+| GPT‑5.4          |              2.50 |                   0.25 |                   3.125 |             15.00 |
+| GPT‑5.4 Mini     |              0.75 |                  0.075 |                  0.9375 |              4.50 |
 
-快取計費：`cache_writes = 1.25 × input_price`，`cache_reads = 0.10 × input_price`。
+快取寫入按 `1.25 × input_price` 計費，快取讀取按 `0.10 × input_price` 計費；`gpt-5.6` 視為 Sol 價格。
 
 ---
 
@@ -143,7 +147,7 @@ Session
  ├─ sessionId   — 從 rollout 檔名中擷取
  ├─ turns[]     — 使用者 → Codex 的 turn 群組
  ├─ costUsd     — 累計各 step 成本
- └─ tokens      — input、cachedInput、output、reasoningOutput
+ └─ tokens      — input、cachedInput、cacheWriteInput、output、reasoningOutput
 ```
 
 每日 JSON 檔按天產生，避免大型資料集導致記憶體問題。

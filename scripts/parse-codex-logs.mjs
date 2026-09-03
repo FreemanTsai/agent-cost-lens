@@ -28,16 +28,17 @@ const defaultRangeDays = RUN_FILL ? FILL_DAYS : 6;
 analysisStart.setUTCDate(analysisStart.getUTCDate() - defaultRangeDays);
 
 const MODEL_PRICING_USD_PER_1M = {
-  'gpt-5.6': { input: 5, cachedInput: 0.5, output: 30 },
-  'gpt-5.6-sol': { input: 5, cachedInput: 0.5, output: 30 },
-  'gpt-5.6-terra': { input: 2.5, cachedInput: 0.25, output: 15 },
-  'gpt-5.6-luna': { input: 1, cachedInput: 0.1, output: 6 },
-  'gpt-5.5': { input: 5, cachedInput: 0.5, output: 30 },
-  'gpt-5.5-medium': { input: 5, cachedInput: 0.5, output: 30 },
-  'gpt-5.5-extra-high': { input: 5, cachedInput: 0.5, output: 30 },
-  'gpt-5.4': { input: 2.5, cachedInput: 0.25, output: 15 },
-  'gpt-5.4-mini': { input: 0.75, cachedInput: 0.075, output: 4.5 },
-  default: { input: 5, cachedInput: 0.5, output: 30 },
+  // OpenAI pricing, USD per 1M tokens. Cache writes are a subset of input.
+  'gpt-5.6-sol': { input: 4, cachedInput: 0.4, cacheWriteInput: 5, output: 20 },
+  'gpt-5.6-terra': { input: 2, cachedInput: 0.2, cacheWriteInput: 2.5, output: 12 },
+  'gpt-5.6-luna': { input: 0.2, cachedInput: 0.02, cacheWriteInput: 0.25, output: 1.2 },
+  'gpt-5.6': { input: 4, cachedInput: 0.4, cacheWriteInput: 5, output: 20 },
+  'gpt-5.5-medium': { input: 5, cachedInput: 0.5, cacheWriteInput: 6.25, output: 30 },
+  'gpt-5.5-extra-high': { input: 5, cachedInput: 0.5, cacheWriteInput: 6.25, output: 30 },
+  'gpt-5.5': { input: 5, cachedInput: 0.5, cacheWriteInput: 6.25, output: 30 },
+  'gpt-5.4-mini': { input: 0.75, cachedInput: 0.075, cacheWriteInput: 0.9375, output: 4.5 },
+  'gpt-5.4': { input: 2.5, cachedInput: 0.25, cacheWriteInput: 3.125, output: 15 },
+  default: { input: 4, cachedInput: 0.4, cacheWriteInput: 5, output: 20 },
 };
 
 function isFilePossiblyRelevant(full, stat) {
@@ -87,6 +88,7 @@ function ensureDay(map, date) {
       date,
       inputTokens: 0,
       cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
       outputTokens: 0,
       reasoningOutputTokens: 0,
       totalTokens: 0,
@@ -130,17 +132,33 @@ function getPricingForModel(model) {
   const normalized = String(model || '').toLowerCase();
   const matchedKey = Object.keys(MODEL_PRICING_USD_PER_1M)
     .filter((key) => key !== 'default')
+    .sort((a, b) => b.length - a.length)
     .find((key) => normalized.includes(key));
   return MODEL_PRICING_USD_PER_1M[matchedKey] || MODEL_PRICING_USD_PER_1M.default;
 }
 
-function estimateCostUsd({ inputTokens = 0, cachedInputTokens = 0, outputTokens = 0, model = 'unknown' }) {
+function estimateCostUsd({
+  inputTokens = 0,
+  cachedInputTokens = 0,
+  cacheWriteInputTokens = 0,
+  outputTokens = 0,
+  reasoningOutputTokens = 0,
+  model = 'unknown',
+}) {
   const pricing = getPricingForModel(model);
-  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const cached = Math.min(Math.max(0, inputTokens), Math.max(0, cachedInputTokens));
+  const cacheWrite = Math.min(
+    Math.max(0, inputTokens - cached),
+    Math.max(0, cacheWriteInputTokens),
+  );
+  const uncachedInputTokens = Math.max(0, inputTokens - cached - cacheWrite);
+  // ponytail: reasoning tokens are billed as output (OpenAI pricing), jsonl total = input+output (excludes reasoning) so add them
+  const billableOutput = Math.max(0, outputTokens) + Math.max(0, reasoningOutputTokens);
   return (
     (uncachedInputTokens * pricing.input) / 1_000_000 +
-    (cachedInputTokens * pricing.cachedInput) / 1_000_000 +
-    (outputTokens * pricing.output) / 1_000_000
+    (cached * pricing.cachedInput) / 1_000_000 +
+    (cacheWrite * pricing.cacheWriteInput) / 1_000_000 +
+    (billableOutput * pricing.output) / 1_000_000
   );
 }
 
@@ -187,6 +205,7 @@ function createMetricBucket(extra = {}) {
   return {
     inputTokens: 0,
     cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
     effectiveInputTokens: 0,
     outputTokens: 0,
     reasoningOutputTokens: 0,
@@ -206,7 +225,8 @@ function createMetricBucket(extra = {}) {
 function addMetrics(target, source) {
   target.inputTokens += source.inputTokens || 0;
   target.cachedInputTokens += source.cachedInputTokens || 0;
-  target.effectiveInputTokens += source.effectiveInputTokens ?? Math.max(0, (source.inputTokens || 0) - (source.cachedInputTokens || 0));
+  target.cacheWriteInputTokens += source.cacheWriteInputTokens || 0;
+  target.effectiveInputTokens += source.effectiveInputTokens ?? Math.max(0, (source.inputTokens || 0) - (source.cachedInputTokens || 0) - (source.cacheWriteInputTokens || 0));
   target.outputTokens += source.outputTokens || 0;
   target.reasoningOutputTokens += source.reasoningOutputTokens || 0;
   target.totalTokens += source.totalTokens || 0;
@@ -221,7 +241,7 @@ function addMetrics(target, source) {
 }
 
 function finalizeMetricBucket(bucket) {
-  bucket.effectiveInputTokens = bucket.inputTokens - bucket.cachedInputTokens;
+  bucket.effectiveInputTokens = Math.max(0, bucket.inputTokens - bucket.cachedInputTokens - bucket.cacheWriteInputTokens);
   bucket.cacheRatio = bucket.inputTokens > 0 ? bucket.cachedInputTokens / bucket.inputTokens : 0;
   bucket.costUsd = Number((bucket.costUsd || 0).toFixed(6));
   return bucket;
@@ -359,7 +379,7 @@ function extractTextFromContent(value, results = []) {
 
     for (const [key, child] of Object.entries(value)) {
       const lowerKey = key.toLowerCase();
-      if (['text', 'content', 'output', 'message'].includes(lowerKey)) continue;
+      if (['text', 'content', 'output', 'message', 'type', 'role', 'id', 'name'].includes(lowerKey)) continue;
       extractTextFromContent(child, results);
     }
   }
@@ -531,12 +551,81 @@ function isAssessmentPrompt(text) {
     || /^model:\s*gpt-[\w.-]+(?:\s+[\w.-]+)*\s+reasoning\s+effort\b/.test(normalized);
 }
 
-function isSystemUserMessage(event) {
-  return event.type === 'response_item' && event.payload?.type === 'message' && event.payload?.role === 'user';
+function extractTurnId(event) {
+  return event.payload?.turn_id
+    || event.payload?.internal_chat_message_metadata_passthrough?.turn_id
+    || null;
+}
+
+function isItemCompleted(event) {
+  return event.type === 'event_msg' && event.payload?.type === 'item_completed';
+}
+
+function getCompletedItem(event) {
+  return isItemCompleted(event) ? event.payload?.item : null;
+}
+
+function messageText(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
+}
+
+function extractMessageTexts(value) {
+  return [...new Set(extractTextFromContent(value, []).map(messageText).filter(Boolean))];
+}
+
+function isInjectedContextMessage(text) {
+  return /^<(?:recommended_plugins|environment_context|app-context|multi_agent_mode)\b/i.test(text)
+    || text.startsWith('<INSTRUCTIONS>')
+    || text.startsWith('# AGENTS.md instructions')
+    || text.includes('\n# AGENTS.md instructions');
+}
+
+function extractResponseMessageTexts(event) {
+  if (event.type !== 'response_item' || event.payload?.type !== 'message') return [];
+  const texts = extractMessageTexts(event.payload.content || event.payload.message);
+  return texts.some(isInjectedContextMessage) ? [] : texts;
+}
+
+function extractCompletedMessageTexts(event) {
+  const item = getCompletedItem(event);
+  if (!item || !['UserMessage', 'AgentMessage'].includes(item.type)) return [];
+  return extractMessageTexts(item.content || item.message || item.text);
+}
+
+function isResponseUserMessage(event) {
+  const content = event.payload?.content;
+  return event.type === 'response_item'
+    && event.payload?.type === 'message'
+    && event.payload?.role === 'user'
+    && Array.isArray(content)
+    && content.length === 1
+    && ['input_text', 'text'].includes(content[0]?.type)
+    && extractResponseMessageTexts(event).length > 0;
+}
+
+function isResponseAssistantMessage(event) {
+  return event.type === 'response_item'
+    && event.payload?.type === 'message'
+    && event.payload?.role === 'assistant'
+    && extractResponseMessageTexts(event).length > 0;
+}
+
+function isCompletedUserMessage(event) {
+  return getCompletedItem(event)?.type === 'UserMessage';
+}
+
+function isCompletedAgentMessage(event) {
+  return getCompletedItem(event)?.type === 'AgentMessage';
 }
 
 function isAgentMessage(event) {
   return event.type === 'event_msg' && event.payload?.type === 'agent_message';
+}
+
+function isAgentReasoning(event) {
+  return event.type === 'event_msg' && event.payload?.type === 'agent_reasoning';
 }
 
 function isTokenCount(event) {
@@ -547,8 +636,16 @@ function isFunctionCall(event) {
   return event.type === 'response_item' && event.payload?.type === 'function_call';
 }
 
+// NOTE: Codex (desktop runtime) switched from function_call + payload.arguments
+// (JSON string) to custom_tool_call + payload.input (JS source calling
+// tools.exec_command({...})). Both must be parsed for tools/skills/files stats.
+function isCustomToolCall(event) {
+  return event.type === 'response_item' && event.payload?.type === 'custom_tool_call';
+}
+
 function isFunctionCallOutput(event) {
-  return event.type === 'response_item' && event.payload?.type === 'function_call_output';
+  return event.type === 'response_item'
+    && (event.payload?.type === 'function_call_output' || event.payload?.type === 'custom_tool_call_output');
 }
 
 function isPatchApplyEnd(event) {
@@ -557,6 +654,7 @@ function isPatchApplyEnd(event) {
 
 const toolNameMap = {
   exec_command: 'Bash',
+  exec: 'Bash',
   write_stdin: 'Bash',
   read_file: 'Read',
   write_file: 'Edit',
@@ -594,11 +692,15 @@ function detectSubCommands(cmd) {
 }
 
 function isSpawnAgent(event) {
-  return isFunctionCall(event) && event.payload?.name === 'spawn_agent';
+  if (isFunctionCall(event) && event.payload?.name === 'spawn_agent') return true;
+  if (isCustomToolCall(event) && String(event.payload?.input || '').includes('spawn_agent')) return true;
+  return false;
 }
 
 function isWaitAgent(event) {
-  return isFunctionCall(event) && event.payload?.name === 'wait_agent';
+  if (isFunctionCall(event) && event.payload?.name === 'wait_agent') return true;
+  if (isCustomToolCall(event) && String(event.payload?.input || '').includes('wait_agent')) return true;
+  return false;
 }
 
 function isTaskComplete(event) {
@@ -606,6 +708,12 @@ function isTaskComplete(event) {
 }
 
 function extractSpawnAgentTarget(event) {
+  // custom_tool_call: multi_agent_v1__spawn_agent doesn't return target in request, rely on wait_agent targets
+  if (isCustomToolCall(event)) {
+    const input = String(event.payload?.input || '');
+    const ids = [...input.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)].map(m => m[0].toLowerCase());
+    return ids[0] || null;
+  }
   try {
     const args = JSON.parse(event.payload?.arguments || '{}');
     return args.target || null;
@@ -613,6 +721,12 @@ function extractSpawnAgentTarget(event) {
 }
 
 function extractWaitAgentTargets(event) {
+  if (isCustomToolCall(event)) {
+    const input = String(event.payload?.input || '');
+    // ponytail: extract UUIDs from targets: ["...","..."] JS source
+    const ids = [...input.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)].map(m => m[0].toLowerCase());
+    return ids;
+  }
   try {
     const args = JSON.parse(event.payload?.arguments || '{}');
     return args.targets || [];
@@ -627,8 +741,14 @@ function extractParentSessionId(payload = {}) {
 }
 
 function extractUserMessageText(event) {
-  if (event.type === 'event_msg' && event.payload?.message) {
-    return event.payload.message;
+  if (event.type === 'event_msg' && event.payload?.type === 'user_message') {
+    return event.payload.message || event.payload.text || null;
+  }
+  if (isCompletedUserMessage(event)) {
+    return extractCompletedMessageTexts(event).join('\n');
+  }
+  if (isResponseUserMessage(event)) {
+    return extractResponseMessageTexts(event).join('\n');
   }
   return null;
 }
@@ -646,10 +766,110 @@ function extractConversationText(event) {
 }
 
 function extractToolCallInfo(event) {
+  const value = event.payload?.arguments || event.payload?.input || '';
   return {
     name: event.payload?.name || 'unknown',
-    arguments: (event.payload?.arguments || '').slice(0, 200),
+    arguments: typeof value === 'string' ? value.slice(0, 1000) : safeStringify(value, 1000),
     callId: event.payload?.call_id || '',
+  };
+}
+
+function extractFunctionCallArgs(event) {
+  const args = JSON.parse(event.payload?.arguments || '{}');
+  return {
+    rawCommand: args.command || args.cmd || '',
+    filePath: args.file_path || args.path || null,
+  };
+}
+
+// custom_tool_call carries JavaScript source in payload.input, often wrapping
+// one or more tools.exec_command/tools.apply_patch calls in Promise.all([...]).
+// Extract only literal command, path, and patch-file arguments; never eval input.
+function readJavaScriptString(source, start) {
+  const quote = source[start];
+  if (!['"', "'", '`'].includes(quote)) return null;
+  let end = start + 1;
+  while (end < source.length) {
+    if (source[end] === '\\') {
+      end += 2;
+      continue;
+    }
+    if (source[end] === quote) return source.slice(start, end + 1);
+    end += 1;
+  }
+  return null;
+}
+
+function decodeJavaScriptString(literal) {
+  if (!literal) return '';
+  if (literal[0] === '"') {
+    try { return JSON.parse(literal); } catch {}
+  }
+  return literal.slice(1, -1)
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\([\\'"`])/g, '$1');
+}
+
+function extractNamedStringValues(source, names) {
+  const keyPattern = names.map((name) => name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')).join('|');
+  const keyRe = new RegExp(`(?:^|[,{]\\s*)(?:["']?(${keyPattern})["']?)\\s*:\\s*`, 'g');
+  const values = [];
+  for (const match of source.matchAll(keyRe)) {
+    const literal = readJavaScriptString(source, match.index + match[0].length);
+    if (literal) values.push({ key: match[1], value: decodeJavaScriptString(literal) });
+  }
+  return values;
+}
+
+function extractPatchFiles(source) {
+  const files = [];
+  const fileRe = /\*\*\* (?:Update|Add|Delete) File:\s*([^\r\n\\]+)/g;
+  for (const match of source.matchAll(fileRe)) {
+    const file = match[1].trim();
+    if (file && !/["'`+${}]/.test(file)) files.push(file);
+  }
+  return files;
+}
+
+function extractCustomToolCallInfo(event) {
+  const input = String(event.payload?.input || '');
+  const rawName = event.payload?.name || '';
+  const innerNames = [...input.matchAll(/\btools\.([A-Za-z_][\w]*)\s*\(/g)].map((match) => match[1]);
+  const names = innerNames.length ? innerNames : [rawName || 'unknown'];
+  const commandValues = extractNamedStringValues(input, ['cmd', 'command']).map(({ value }) => value);
+  const workdirValues = extractNamedStringValues(input, ['workdir', 'cwd']).map(({ value }) => value);
+  const pathValues = extractNamedStringValues(input, ['file_path', 'filePath', 'path', 'filename']).map(({ value }) => value);
+  const files = [...new Set([...pathValues, ...extractPatchFiles(input)].filter(Boolean))];
+  const isCommandTool = names.some((name) => ['exec_command', 'exec', 'write_stdin'].includes(name));
+  const commands = isCommandTool
+    ? commandValues.flatMap((command) => detectSubCommands(command))
+    : [];
+  const skills = commandValues.flatMap(detectSkillReads);
+  const toolCalls = names.map((name, index) => {
+    const argument = ['exec_command', 'exec', 'write_stdin'].includes(name)
+      ? safeStringify({
+          cmd: commandValues[index] || '',
+          ...(workdirValues[index] ? { workdir: workdirValues[index] } : {}),
+        }, 1000)
+      : files[index]
+        ? safeStringify({ path: files[index] }, 1000)
+        : input;
+    return {
+      name,
+      arguments: truncateText(argument, 1000),
+      callId: event.payload?.call_id || '',
+    };
+  });
+
+  return {
+    tools: names.map((name) => toolNameMap[name] || name),
+    commands,
+    skills,
+    files,
+    commandSequence: commands,
+    toolCalls,
   };
 }
 
@@ -670,6 +890,7 @@ function ensureSession(map, sessionId, file) {
 
       inputTokens: 0,
       cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
       outputTokens: 0,
       reasoningOutputTokens: 0,
       totalTokens: 0,
@@ -689,7 +910,10 @@ function ensureSession(map, sessionId, file) {
       _skillAccum: {},
       _fileAccum: {},
       _toolCallAccum: [],
+      _messageAccum: [],
+      _messageSeen: new Set(),
       _commentaryAccum: [],
+      _currentTurnId: null,
       _isAssessment: false,
       isSubagent: false,
       forkedFromId: null,
@@ -733,7 +957,7 @@ function flushPendingContext(session, targetTurn) {
   session._fileAccum = {};
 }
 
-function startNewTurn(session, userMessage, date, timestamp) {
+function startNewTurn(session, userMessage, date, timestamp, turnId = null) {
   // Capture whichever turn was active before this one starts. Anything
   // accumulated since that turn's last token_count belongs there. If there
   // was no previous turn at all (this is the very first turn in the
@@ -743,15 +967,17 @@ function startNewTurn(session, userMessage, date, timestamp) {
 
   const turn = {
     turnIndex: session.turns.length + 1,
+    turnId,
     timestamp: timestamp || null,
     date,
     projectName: session.projectName || 'unknown',
-    model: session._currentModel || 'unknown',
+    // ponytail: fallback to previous turn's model when _currentModel cleared after last turn
+    model: session._currentModel || previousTurn?.model || 'unknown',
     userMessage: truncateText(userMessage || '', 1000),
     commentary: [],
     steps: [],
     subagentRefs: [],
-    inputTokens: 0, cachedInputTokens: 0, outputTokens: 0,
+    inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0,
     reasoningOutputTokens: 0, totalTokens: 0, costUsd: 0,
     calls: 0, tools: {}, commands: {}, skills: {}, files: {},
   };
@@ -760,19 +986,49 @@ function startNewTurn(session, userMessage, date, timestamp) {
 
   session.turns.push(turn);
   session._currentTurn = turn;
+  session._currentTurnId = turnId;
   session._currentModel = null;
   session._toolCallAccum = [];
+  session._messageAccum = [];
+  session._messageSeen = new Set();
   session._commentaryAccum = [];
   return turn;
 }
 
+function startUserTurn(session, userMessage, date, timestamp, turnId = null) {
+  const normalizedMessage = truncateText(userMessage || '', 1000);
+  const current = session._currentTurn;
+  const sameTurnId = Boolean(turnId && current?.turnId === turnId);
+  const currentTime = current?.timestamp ? Date.parse(current.timestamp) : NaN;
+  const eventTime = timestamp ? Date.parse(timestamp) : NaN;
+  const sameLegacyEvent = !turnId
+    && current
+    && current.userMessage === normalizedMessage
+    && Number.isFinite(currentTime)
+    && Number.isFinite(eventTime)
+    && Math.abs(currentTime - eventTime) <= 1000;
+  if (sameTurnId || sameLegacyEvent) return false;
+
+  startNewTurn(session, userMessage, date, timestamp, turnId);
+  return true;
+}
+
+function addAssistantMessage(session, message) {
+  const text = messageText(message);
+  if (!text || !session._currentTurn) return;
+  const key = text.replace(/\s+/g, ' ').trim();
+  if (session._messageSeen.has(key)) return;
+  session._messageSeen.add(key);
+  session._messageAccum.push({ role: 'assistant', text });
+}
+
 function addAgentCommentary(session, message) {
-  if (!message) return;
-  const turn = session._currentTurn;
-  if (turn) {
-    if (!turn.commentary) turn.commentary = [];
-    turn.commentary.push(truncateText(message, 500));
-  }
+  const text = truncateText(message, 1000);
+  if (!text || !session._currentTurn) return;
+  if (!session._commentaryAccum) session._commentaryAccum = [];
+  if (!session._commentaryAccum.includes(text)) session._commentaryAccum.push(text);
+  if (!session._currentTurn.commentary) session._currentTurn.commentary = [];
+  if (!session._currentTurn.commentary.includes(text)) session._currentTurn.commentary.push(text);
 }
 
 function addToolCallToCurrentStep(session, info) {
@@ -813,6 +1069,7 @@ function handleTokenCount(event, session, day, date, detectedModel) {
 
   const input = usage.input_tokens || 0;
   const cached = usage.cached_input_tokens || 0;
+  const cacheWrite = usage.cache_write_input_tokens || 0;
   const output = usage.output_tokens || 0;
   const reasoning = usage.reasoning_output_tokens || 0;
   const total = usage.total_tokens || input + output;
@@ -828,24 +1085,35 @@ function handleTokenCount(event, session, day, date, detectedModel) {
     };
   }
   const model = (detectedModel && detectedModel !== 'unknown') || session._currentModel || (session._currentTurn?.model) || 'unknown';
-  const costUsd = estimateCostUsd({ inputTokens: input, cachedInputTokens: cached, outputTokens: output, model });
+  const costUsd = estimateCostUsd({
+    inputTokens: input,
+    cachedInputTokens: cached,
+    cacheWriteInputTokens: cacheWrite,
+    outputTokens: output,
+    reasoningOutputTokens: reasoning,
+    model,
+  });
 
   const mc = session.modelCosts || (session.modelCosts = {});
-  if (!mc[model]) mc[model] = { count: 0, costUsd: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+  if (!mc[model]) mc[model] = { count: 0, costUsd: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 };
   mc[model].count += 1;
   mc[model].costUsd += costUsd;
   mc[model].inputTokens += input;
   mc[model].cachedInputTokens += cached;
+  mc[model].cacheWriteInputTokens += cacheWrite;
   mc[model].outputTokens += output;
+  mc[model].reasoningOutputTokens += reasoning;
 
   if (day) {
     day.inputTokens += input; day.cachedInputTokens += cached;
+    day.cacheWriteInputTokens += cacheWrite;
     day.outputTokens += output; day.reasoningOutputTokens += reasoning;
     day.totalTokens += total; day.tokenEventCount += 1;
   }
   session.tokenEventCount += 1;
   session.inputTokens += input;
   session.cachedInputTokens += cached;
+  session.cacheWriteInputTokens += cacheWrite;
   session.outputTokens += output;
   session.reasoningOutputTokens += reasoning;
   session.costUsd = (session.costUsd || 0) + costUsd;
@@ -855,7 +1123,8 @@ function handleTokenCount(event, session, day, date, detectedModel) {
   turn.model = model;
 
   turn.inputTokens += input; turn.cachedInputTokens += cached;
-  turn.effectiveInputTokens = (turn.effectiveInputTokens || 0) + (input - cached);
+  turn.cacheWriteInputTokens += cacheWrite;
+  turn.effectiveInputTokens = (turn.effectiveInputTokens || 0) + Math.max(0, input - cached - cacheWrite);
   turn.outputTokens += output; turn.reasoningOutputTokens += reasoning;
   turn.totalTokens += total; turn.costUsd = (turn.costUsd || 0) + costUsd;
   turn.calls = (turn.calls || 0) + 1;
@@ -884,14 +1153,14 @@ function handleTokenCount(event, session, day, date, detectedModel) {
     stepIndex: (turn.steps?.length || 0) + 1,
     timestamp: event.timestamp || null,
     date, model, costUsd, calls: 1,
-    inputTokens: input, cachedInputTokens: cached,
-    effectiveInputTokens: input - cached,
+    inputTokens: input, cachedInputTokens: cached, cacheWriteInputTokens: cacheWrite,
+    effectiveInputTokens: Math.max(0, input - cached - cacheWrite),
     outputTokens: output, reasoningOutputTokens: reasoning,
     totalTokens: total, cacheRatio: input > 0 ? cached / input : 0,
     tools: { ...toolAccum }, commands: { ...commandAccum }, skills: { ...skillAccum }, files: { ...fileAccum },
     commandSequence: [...commandSeqAccum],
     role: 'codex',
-    message: '',
+    message: (session._messageAccum || []).map((entry) => entry.text).join('\n\n'),
     toolCalls: [...(session._toolCallAccum || [])],
     commentary: [...(session._commentaryAccum || [])],
   };
@@ -907,6 +1176,7 @@ function handleTokenCount(event, session, day, date, detectedModel) {
   session._skillAccum = {};
   session._fileAccum = {};
   session._toolCallAccum = [];
+  session._messageAccum = [];
   session._commentaryAccum = [];
 }
 
@@ -920,6 +1190,12 @@ for (const file of files) {
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
   const sessionId = getSessionId(file);
   const session = ensureSession(sessions, sessionId, file);
+  // ponytail: seed model from first model event so early token_counts before first turn_context are not unknown
+  if (!session._currentModel) {
+    for (const l of lines) {
+      try { const e = JSON.parse(l); const m = extractModel(e); if (m && m !== 'unknown') { session._currentModel = m; break; } } catch {}
+    }
+  }
 
   for (const line of lines) {
     let event;
@@ -934,6 +1210,8 @@ for (const file of files) {
         || event.payload?.source?.subagent?.thread_spawn?.agent_nickname
         || null;
       session.agentRole = event.payload?.agent_role || 'worker';
+      const metaProjectName = projectNameFromPath(event.payload?.cwd);
+      if (metaProjectName) session.projectName = metaProjectName;
       if (session.forkedFromId && event.timestamp) {
         session.forkCutoff = new Date(new Date(event.timestamp).getTime() + 5000).toISOString();
       }
@@ -948,12 +1226,7 @@ for (const file of files) {
     if (!session.date) session.date = date;
     if (day) day.eventCount += 1;
 
-    if (session.forkCutoff && event.timestamp && event.timestamp < session.forkCutoff) continue;
-
-    if (isFunctionCallOutput(event)) {
-      continue;
-    }
-
+    // ponytail: capture model/project even before forkCutoff – subagent's first ~5s holds the model
     const detectedWorkdir = extractWorkdir(event);
     const detectedProjectName = projectNameFromPath(detectedWorkdir) || 'unknown';
     if (detectedProjectName && detectedProjectName !== 'unknown') session.projectName = detectedProjectName;
@@ -963,14 +1236,43 @@ for (const file of files) {
       addCount(session.models, detectedModel);
       session._currentModel = detectedModel;
     }
+    if (session.forkCutoff && event.timestamp && event.timestamp < session.forkCutoff) continue;
 
-    if (isUserMessage(event)) {
+    if (isFunctionCallOutput(event)) {
+      continue;
+    }
+
+    if (isUserMessage(event) || isCompletedUserMessage(event) || isResponseUserMessage(event)) {
       const text = extractUserMessageText(event) || extractConversationText(event) || '';
-      if (!session._isAssessment && !session.turns.length && isAssessmentPrompt(text)) {
-        session._isAssessment = true;
+      if (text) {
+        if (!session._isAssessment && !session.turns.length && isAssessmentPrompt(text)) {
+          session._isAssessment = true;
+        }
+        const isNewTurn = startUserTurn(session, text, date, event.timestamp, extractTurnId(event));
+        if (isNewTurn) accumulateStepContext(session, [], [], detectSkills(text), []);
       }
-      startNewTurn(session, text, date, event.timestamp);
-      accumulateStepContext(session, [], [], detectSkills(text), []);
+      continue;
+    }
+
+    if (isResponseAssistantMessage(event)) {
+      for (const text of extractResponseMessageTexts(event)) addAssistantMessage(session, text);
+      continue;
+    }
+
+    if (isCompletedAgentMessage(event)) {
+      for (const text of extractCompletedMessageTexts(event)) addAssistantMessage(session, text);
+      continue;
+    }
+
+    if (isAgentMessage(event)) {
+      const msg = event.payload?.message || event.payload?.text || '';
+      addAgentCommentary(session, msg);
+      addAssistantMessage(session, msg);
+      continue;
+    }
+
+    if (isAgentReasoning(event)) {
+      addAgentCommentary(session, event.payload?.text || '');
       continue;
     }
 
@@ -978,7 +1280,7 @@ for (const file of files) {
       const info = event.payload?.info;
       if (info?.total_token_usage && session.forkedFromId) {
         const t = info.total_token_usage;
-        const dedupKey = `fork:${session.forkedFromId}:${t.total_tokens || 0}:${t.input_tokens || 0}:${t.cached_input_tokens || 0}:${t.output_tokens || 0}:${t.reasoning_output_tokens || 0}`;
+        const dedupKey = `fork:${session.forkedFromId}:${t.total_tokens || 0}:${t.input_tokens || 0}:${t.cached_input_tokens || 0}:${t.cache_write_input_tokens || 0}:${t.output_tokens || 0}:${t.reasoning_output_tokens || 0}`;
         if (seenDedupKeys.has(dedupKey)) continue;
         seenDedupKeys.add(dedupKey);
       }
@@ -992,12 +1294,6 @@ for (const file of files) {
             ? rateLimit
             : Math.max(day.maxRateLimitUsedPercent, rateLimit);
       }
-      continue;
-    }
-
-    if (isAgentMessage(event)) {
-      const msg = event.payload?.message || '';
-      addAgentCommentary(session, msg);
       continue;
     }
 
@@ -1016,24 +1312,35 @@ for (const file of files) {
       }
     }
 
-    if (isFunctionCall(event)) {
-      addToolCallToCurrentStep(session, extractToolCallInfo(event));
-      const rawName = event.payload?.name || '';
-      const mappedTool = toolNameMap[rawName] || rawName;
-      let commands = [];
-      let skills = [];
-      let filePath = null;
-      let rawCommand = '';
-      try {
-        const args = JSON.parse(event.payload?.arguments || '{}');
-        filePath = args.file_path || args.path || null;
-        rawCommand = args.command || args.cmd || '';
-        if (rawName === 'exec_command' && rawCommand) {
-          commands = detectSubCommands(String(rawCommand));
-          skills = detectSkillReads(String(rawCommand));
-        }
-      } catch {}
-      accumulateStepContext(session, [mappedTool], commands, skills, filePath ? [filePath] : []);
+    if (isFunctionCall(event) || isCustomToolCall(event)) {
+      if (isCustomToolCall(event)) {
+        const info = extractCustomToolCallInfo(event);
+        for (const toolCall of info.toolCalls) addToolCallToCurrentStep(session, toolCall);
+        accumulateStepContext(
+          session,
+          info.tools,
+          info.commands,
+          info.skills,
+          info.files,
+          info.commandSequence,
+        );
+      } else {
+        addToolCallToCurrentStep(session, extractToolCallInfo(event));
+        const rawName = event.payload?.name || '';
+        const mappedTool = toolNameMap[rawName] || rawName;
+        let commands = [];
+        let skills = [];
+        let filePath = null;
+        try {
+          const args = extractFunctionCallArgs(event);
+          filePath = args.filePath;
+          if (rawName === 'exec_command' || rawName === 'exec') {
+            commands = detectSubCommands(String(args.rawCommand || ''));
+            skills = detectSkillReads(String(args.rawCommand || ''));
+          }
+        } catch {}
+        accumulateStepContext(session, [mappedTool], commands, skills, filePath ? [filePath] : []);
+      }
       continue;
     }
 
@@ -1067,6 +1374,7 @@ const totals = days.reduce(
   (acc, day) => {
     acc.inputTokens += day.inputTokens;
     acc.cachedInputTokens += day.cachedInputTokens;
+    acc.cacheWriteInputTokens += day.cacheWriteInputTokens || 0;
     acc.outputTokens += day.outputTokens;
     acc.reasoningOutputTokens += day.reasoningOutputTokens;
     acc.totalTokens += day.totalTokens;
@@ -1090,6 +1398,7 @@ const totals = days.reduce(
   {
     inputTokens: 0,
     cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
     outputTokens: 0,
     reasoningOutputTokens: 0,
     totalTokens: 0,
@@ -1101,7 +1410,7 @@ const totals = days.reduce(
   },
 );
 for (const day of days) {
-  day.effectiveInputTokens = day.inputTokens - day.cachedInputTokens;
+  day.effectiveInputTokens = Math.max(0, day.inputTokens - day.cachedInputTokens - (day.cacheWriteInputTokens || 0));
 
   day.cacheRatio =
     day.inputTokens > 0 ? day.cachedInputTokens / day.inputTokens : 0;
@@ -1110,8 +1419,10 @@ for (const day of days) {
 const sessionList = Object.values(sessions)
   .filter((session) => RUN_ALL || session.tokenEventCount > 0)
   .map((session) => {
-    session.effectiveInputTokens =
-      session.inputTokens - session.cachedInputTokens;
+    session.effectiveInputTokens = Math.max(
+      0,
+      session.inputTokens - session.cachedInputTokens - session.cacheWriteInputTokens,
+    );
 
     session.cacheRatio =
       session.inputTokens > 0
@@ -1120,7 +1431,10 @@ const sessionList = Object.values(sessions)
 
     for (const turn of session.turns || []) {
       turn.projectName = turn.projectName || session.projectName || 'unknown';
-      turn.effectiveInputTokens = turn.inputTokens - turn.cachedInputTokens;
+      turn.effectiveInputTokens = Math.max(
+        0,
+        turn.inputTokens - turn.cachedInputTokens - (turn.cacheWriteInputTokens || 0),
+      );
       turn.cacheRatio = turn.inputTokens > 0 ? turn.cachedInputTokens / turn.inputTokens : 0;
       turn.costUsd = Number((turn.costUsd || 0).toFixed(6));
       turn.calls = turn.calls || (turn.steps || []).length;
@@ -1132,13 +1446,19 @@ const sessionList = Object.values(sessions)
     delete session._skillAccum;
     delete session._fileAccum;
     delete session._toolCallAccum;
+    delete session._messageAccum;
+    delete session._messageSeen;
     delete session._commentaryAccum;
     delete session._currentTurn;
+    delete session._currentTurnId;
 
     return session;
   });
 
-totals.effectiveInputTokens = totals.inputTokens - totals.cachedInputTokens;
+totals.effectiveInputTokens = Math.max(
+  0,
+  totals.inputTokens - totals.cachedInputTokens - totals.cacheWriteInputTokens,
+);
 
 totals.cacheRatio =
   totals.inputTokens > 0 ? totals.cachedInputTokens / totals.inputTokens : 0;
@@ -1160,6 +1480,17 @@ for (const s of sortedSessions) {
     s.sessionType = 'assessment';
   }
 }
+
+// ponytail: subagents only live inside parent – build child index and hide from top-level counts
+const _childMap = {};
+for (const s of sortedSessions) {
+  if (s.parentSessionId && _sessionById[s.parentSessionId]) {
+    if (!_childMap[s.parentSessionId]) _childMap[s.parentSessionId] = [];
+    _childMap[s.parentSessionId].push(s);
+  }
+}
+// session count should match Codex UI (parents only) – any child with parentSessionId is not a top-level session
+totals.sessionCount = sessionList.filter(s => !s.parentSessionId).length;
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'FileEditTool', 'FileWriteTool', 'NotebookEdit']);
 
@@ -1442,7 +1773,8 @@ function buildTurnMetric(session, turn) {
     sessions: 0,
     inputTokens: turn.inputTokens || 0,
     cachedInputTokens: turn.cachedInputTokens || 0,
-    effectiveInputTokens: turn.effectiveInputTokens ?? Math.max(0, (turn.inputTokens || 0) - (turn.cachedInputTokens || 0)),
+    cacheWriteInputTokens: turn.cacheWriteInputTokens || 0,
+    effectiveInputTokens: turn.effectiveInputTokens ?? Math.max(0, (turn.inputTokens || 0) - (turn.cachedInputTokens || 0) - (turn.cacheWriteInputTokens || 0)),
     outputTokens: turn.outputTokens || 0,
     reasoningOutputTokens: turn.reasoningOutputTokens || 0,
     totalTokens: turn.totalTokens || 0,
@@ -1557,6 +1889,7 @@ function serializeStep(step) {
     calls: step.calls || 0,
     inputTokens: step.inputTokens || 0,
     cachedInputTokens: step.cachedInputTokens || 0,
+    cacheWriteInputTokens: step.cacheWriteInputTokens || 0,
     effectiveInputTokens: step.effectiveInputTokens || 0,
     outputTokens: step.outputTokens || 0,
     reasoningOutputTokens: step.reasoningOutputTokens || 0,
@@ -1569,7 +1902,9 @@ function serializeStep(step) {
 
 function buildResultForDate(date) {
   const day = days.find((item) => item.date === date);
-  const sessionsForDate = sortedSessions
+  // ponytail: C – subagents live inside parent only, don't list separately (any session with parentSessionId)
+  const parentSessions = sortedSessions.filter(s => !s.parentSessionId);
+  const sessionsForDate = parentSessions
     .map((session) => {
       const context = session._contextByDate?.[date];
       const parentTurns = [];
@@ -1588,6 +1923,7 @@ function buildResultForDate(date) {
           userMessage: turn.userMessage || '',
           inputTokens: sumStep('inputTokens'),
           cachedInputTokens: sumStep('cachedInputTokens'),
+          cacheWriteInputTokens: sumStep('cacheWriteInputTokens'),
           effectiveInputTokens: sumStep('effectiveInputTokens'),
           outputTokens: sumStep('outputTokens'),
           reasoningOutputTokens: sumStep('reasoningOutputTokens'),
@@ -1628,6 +1964,7 @@ function buildResultForDate(date) {
               userMessage: st.userMessage || '',
               inputTokens: st.inputTokens || 0,
               cachedInputTokens: st.cachedInputTokens || 0,
+              cacheWriteInputTokens: st.cacheWriteInputTokens || 0,
               effectiveInputTokens: st.effectiveInputTokens || 0,
               outputTokens: st.outputTokens || 0,
               reasoningOutputTokens: st.reasoningOutputTokens || 0,
@@ -1643,11 +1980,59 @@ function buildResultForDate(date) {
               subagentRefs: [],
               steps: (st.steps || []).map(serializeStep),
               isSubagent: true,
+              subagentSessionId: ref.subagentSessionId,
               agentNickname: sub.agentNickname || null,
               agentRole: sub.agentRole || 'worker',
               baseContextTokens: i === 0 ? ((sub.turns?.[0]?.steps?.[0]?.effectiveInputTokens) || 0) : 0,
             }));
           parentTurns.push(...subTurns);
+        }
+      }
+      // ponytail: fallback – embed any child sessions not linked via wait_agent (spawn without wait, or custom runtime)
+      {
+        const embeddedIds = new Set(parentTurns.filter(t => t.isSubagent && t.subagentSessionId).map(t => t.subagentSessionId));
+        // also include ids from subagentRefs that were embedded
+        for (const t of session.turns || []) {
+          for (const r of (t.subagentRefs || [])) embeddedIds.add(r.subagentSessionId);
+        }
+        const children = _childMap[session.sessionId] || [];
+        for (const child of children) {
+          if (embeddedIds.has(child.sessionId)) continue;
+          if (!child.turns || !child.turns.length) continue;
+          for (let i = 0; i < child.turns.length; i++) {
+            const st = child.turns[i];
+            if (st.date !== date) continue;
+            parentTurns.push({
+              turnIndex: st.turnIndex,
+              timestamp: st.timestamp,
+              date: st.date,
+              projectName: st.projectName,
+              model: st.model,
+              userMessage: st.userMessage || '',
+              inputTokens: st.inputTokens || 0,
+              cachedInputTokens: st.cachedInputTokens || 0,
+              cacheWriteInputTokens: st.cacheWriteInputTokens || 0,
+              effectiveInputTokens: st.effectiveInputTokens || 0,
+              outputTokens: st.outputTokens || 0,
+              reasoningOutputTokens: st.reasoningOutputTokens || 0,
+              totalTokens: st.totalTokens || 0,
+              cacheRatio: st.cacheRatio || 0,
+              costUsd: st.costUsd || 0,
+              calls: st.calls || 0,
+              tools: st.tools || {},
+              commands: st.commands || {},
+              skills: st.skills || {},
+              files: st.files || {},
+              commentary: st.commentary || [],
+              subagentRefs: [],
+              steps: (st.steps || []).map(serializeStep),
+              isSubagent: true,
+              subagentSessionId: child.sessionId,
+              agentNickname: child.agentNickname || null,
+              agentRole: child.agentRole || 'worker',
+              baseContextTokens: i === 0 ? ((child.turns?.[0]?.steps?.[0]?.effectiveInputTokens) || 0) : 0,
+            });
+          }
         }
       }
       const turns = parentTurns;
@@ -1658,15 +2043,15 @@ function buildResultForDate(date) {
         sessionId: session.sessionId,
         file: session.file,
         projectName: session.projectName,
-        models: session.models,
-        modelCosts: session.modelCosts || {},
+        models: {},
+        modelCosts: {},
         date,
         turns: turns.length,
         sessions: 1,
         parentSessionId: session.parentSessionId || null,
         sessionType: session.sessionType || 'normal',
         agentNickname: session.agentNickname || null,
-        agentRole: session.agentRole || null,
+        agentRole: session.agentRole || 'worker',
         baseContextTokens: (session.turns?.[0]?.steps?.[0]?.effectiveInputTokens) || 0,
         contextWindowTokens: context?.contextWindowTokens,
         contextUsedTokens: context?.contextUsedTokens,
@@ -1677,6 +2062,7 @@ function buildResultForDate(date) {
         addMetrics(bucket, {
           inputTokens: turn.inputTokens,
           cachedInputTokens: turn.cachedInputTokens,
+          cacheWriteInputTokens: turn.cacheWriteInputTokens,
           effectiveInputTokens: turn.effectiveInputTokens,
           outputTokens: turn.outputTokens,
           reasoningOutputTokens: turn.reasoningOutputTokens,
@@ -1688,6 +2074,18 @@ function buildResultForDate(date) {
           skills: turn.skills,
           files: turn.files,
         });
+        for (const step of turn.steps || []) {
+          const m = step.model || 'unknown';
+          addCount(bucket.models, m);
+          if (!bucket.modelCosts[m]) bucket.modelCosts[m] = { count: 0, costUsd: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 };
+          bucket.modelCosts[m].count += 1;
+          bucket.modelCosts[m].costUsd += Number(step.costUsd || 0);
+          bucket.modelCosts[m].inputTokens += Number(step.inputTokens || 0);
+          bucket.modelCosts[m].cachedInputTokens += Number(step.cachedInputTokens || 0);
+          bucket.modelCosts[m].cacheWriteInputTokens += Number(step.cacheWriteInputTokens || 0);
+          bucket.modelCosts[m].outputTokens += Number(step.outputTokens || 0);
+          bucket.modelCosts[m].reasoningOutputTokens += Number(step.reasoningOutputTokens || 0);
+        }
       }
 
       finalizeMetricBucket(bucket);
@@ -1705,6 +2103,7 @@ function buildResultForDate(date) {
     ? {
         inputTokens: day.inputTokens,
         cachedInputTokens: day.cachedInputTokens,
+        cacheWriteInputTokens: day.cacheWriteInputTokens,
         effectiveInputTokens: day.effectiveInputTokens,
         outputTokens: day.outputTokens,
         reasoningOutputTokens: day.reasoningOutputTokens,
@@ -1722,6 +2121,7 @@ function buildResultForDate(date) {
     : {
         inputTokens: 0,
         cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
         effectiveInputTokens: 0,
         outputTokens: 0,
         reasoningOutputTokens: 0,
@@ -1752,9 +2152,8 @@ let outputDates = RUN_DATE_ONLY
   ? [TARGET_DATE]
   : days.map((day) => day.date);
 
-if (RUN_FILL) {
-  const missing = outputDates.filter((date) => !fs.existsSync(path.join(DATA_DIR, `${OUTPUT_FILE_PREFIX}-${date}.json`)));
-  outputDates = missing.length > 0 ? missing : [TARGET_DATE];
+if (RUN_FILL && outputDates.length === 0) {
+  outputDates = [TARGET_DATE];
 }
 
 const writtenFiles = [];
@@ -1771,7 +2170,7 @@ console.log(
     : RUN_DATE_ONLY
       ? `Mode: single date ${TARGET_DATE}`
       : RUN_FILL
-        ? `Mode: fill missing dates (last ${FILL_DAYS} days)`
+        ? `Mode: refresh recent dates (last ${FILL_DAYS} days)`
         : 'Mode: last 7 days by default, write one file per day',
 );
 console.log(`Parsed ${files.length} JSONL files`);

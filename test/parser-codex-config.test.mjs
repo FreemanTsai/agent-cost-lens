@@ -457,10 +457,14 @@ describe('Codex config scanning', () => {
     });
 
     const usage = JSON.parse(fs.readFileSync(path.join(cwd, 'public', 'data', 'codex-usage-2026-06-23.json'), 'utf8'));
+    // ponytail: C – subagents aggregated into parent, not listed separately
     const child = usage.sessions.find((session) => session.sessionId === childId);
-
-    assert.equal(child.parentSessionId, parentId);
-    assert.equal(child.sessionType, 'assessment');
+    assert.equal(child, undefined);
+    const parent = usage.sessions.find((session) => session.sessionId === parentId);
+    assert.equal(parent.sessionType, 'assessment');
+    // parent cost should include child's 100 input + 20 output (assessment child aggregated)
+    assert.equal(parent.inputTokens, 200);
+    assert.equal(parent.outputTokens, 40);
   });
 
   it('counts explicit skill links without counting available skill paths', () => {
@@ -537,5 +541,159 @@ describe('Codex config scanning', () => {
     assert.equal(skills['.system'], undefined);
     assert.equal(skills.pdf, undefined);
     assert.equal(skills['SKILL.md)\\n-'], undefined);
+  });
+
+  it('parses modern Codex events into turns, messages, tools, commands, skills, and files', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-cost-lens-'));
+    const home = path.join(tmp, 'home');
+    const cwd = path.join(tmp, 'workspace');
+    const sessionId = '019e0000-0000-7000-8000-000000000021';
+    const turnId = '019e0000-0000-7000-8000-000000000022';
+    const sessionDir = path.join(home, '.codex', 'sessions', '2026', '06', '23');
+    const sessionFile = path.join(sessionDir, `rollout-2026-06-23T00-00-00-${sessionId}.jsonl`);
+    const userText = 'inspect the current implementation';
+    const assistantText = 'I inspected the implementation and found the relevant file.';
+
+    fs.mkdirSync(path.join(cwd, 'public', 'data'), { recursive: true });
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(sessionFile, [
+      {
+        timestamp: '2026-06-23T00:00:00.000Z',
+        type: 'session_meta',
+        payload: { cwd, session_id: sessionId, thread_source: 'user' },
+      },
+      {
+        timestamp: '2026-06-23T00:00:00.100Z',
+        type: 'turn_context',
+        payload: { turn_id: turnId, cwd, model: 'gpt-5.6-luna' },
+      },
+      {
+        timestamp: '2026-06-23T00:00:00.900Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: '# AGENTS.md instructions for the workspace' }],
+          internal_chat_message_metadata_passthrough: { turn_id: turnId },
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:01.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: userText }],
+          internal_chat_message_metadata_passthrough: { turn_id: turnId },
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:01.001Z',
+        type: 'event_msg',
+        payload: {
+          type: 'item_completed',
+          turn_id: turnId,
+          item: { type: 'UserMessage', id: 'user-item', content: [{ type: 'text', text: userText }] },
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:02.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: assistantText }],
+          internal_chat_message_metadata_passthrough: { turn_id: turnId },
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:02.001Z',
+        type: 'event_msg',
+        payload: {
+          type: 'item_completed',
+          turn_id: turnId,
+          item: { type: 'AgentMessage', id: 'assistant-item', content: [{ type: 'Text', text: assistantText }] },
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:03.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_exec',
+          input: `const r = await tools.exec_command({cmd:"rtk sed -n 1,20p /Users/me/.agents/skills/baseline-ui/SKILL.md && rtk git status --short",workdir:${JSON.stringify(cwd)}}); text(r.output);`,
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:04.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_patch',
+          input: `const patch = ${JSON.stringify(`*** Begin Patch\\n*** Update File: ${cwd}/src/app.js\\n@@\\n-old\\n+new\\n*** End Patch`)}; text(await tools.apply_patch(patch));`,
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:05.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'agent_reasoning',
+          text: 'Checking the implementation',
+        },
+      },
+      {
+        timestamp: '2026-06-23T00:00:06.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 20,
+              cache_write_input_tokens: 10,
+              output_tokens: 10,
+              reasoning_output_tokens: 2,
+              total_tokens: 110,
+            },
+          },
+        },
+      },
+    ].map((event) => JSON.stringify(event)).join('\n'));
+
+    execFileSync(process.execPath, [parserScript, '--date=2026-06-23', '--date-only'], {
+      cwd,
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+      },
+      stdio: 'pipe',
+    });
+
+    const usage = JSON.parse(fs.readFileSync(path.join(cwd, 'public', 'data', 'codex-usage-2026-06-23.json'), 'utf8'));
+    const session = usage.sessions[0];
+    const turn = session.turns[0];
+    const step = turn.steps[0];
+
+    assert.equal(session.turns.length, 1);
+    assert.equal(turn.userMessage, userText);
+    assert.equal(session.models['gpt-5.6-luna'], 1);
+    assert.equal(step.message, assistantText);
+    assert.equal(step.commentary[0], 'Checking the implementation');
+    assert.equal(turn.tools.Bash, 1);
+    assert.equal(turn.tools.Edit, 1);
+    assert.equal(turn.commands.sed, 1);
+    assert.equal(turn.commands.git, 1);
+    assert.equal(turn.skills['baseline-ui'], 1);
+    assert.equal(turn.files[`${cwd}/src/app.js`], 1);
+    assert.equal(step.toolCalls.some((call) => call.name === 'exec_command'), true);
+    assert.equal(step.toolCalls.some((call) => call.name === 'apply_patch'), true);
+    assert.equal(turn.cacheWriteInputTokens, 10);
+    assert.equal(step.cacheWriteInputTokens, 10);
+    assert.equal(step.effectiveInputTokens, 70);
+    // ponytail: reasoning billed as output (2 tokens * luna output $1.2/M)
+    assert.equal(step.costUsd, 0.0000313);
   });
 });

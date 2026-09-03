@@ -150,6 +150,8 @@ describe('Monitor rendering', () => {
     assert.match(monitorHtml, /new URLSearchParams\(\{ id: String\(id \|\| ""\) \}\)/);
     assert.match(monitorHtml, /fetch\("\/api\/session\?" \+ params\.toString\(\),\s*\{ cache: "no-store" \}\)/);
     assert.match(monitorHtml, /\.showModal\(\)/);
+    assert.match(monitorHtml, /renderCounts\(step\.skills\)/);
+    assert.match(monitorHtml, /renderCounts\(turn\.skills\)/);
     assert.match(monitorHtml, /dialog\.modal-dialog\s*\{[\s\S]*position: fixed;[\s\S]*top: 50%;[\s\S]*left: 50%;[\s\S]*transform: translate\(-50%, -50%\);[\s\S]*margin: 0;/);
     assert.doesNotMatch(monitorHtml, /window\.open\("\/\?session="/);
   });

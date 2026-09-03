@@ -35,7 +35,7 @@ describe('Monitor data refresh', () => {
     assert.match(serverSource, /for \(const step of turn\.steps \|\| \[\]\)/);
     assert.match(serverSource, /const sessionMap = new Map\(\);/);
     assert.match(serverSource, /sessionMap\.set\(session\.sessionId,\s*row\);/);
-    assert.match(serverSource, /\[\.\.\.sessionMap\.values\(\)\][\s\S]*\.sort\(\(a, b\) => b\.lastTimestamp\.localeCompare\(a\.lastTimestamp\)\)/);
+    assert.match(serverSource, /\[\.\.\.sessionMap\.values\(\)\][\s\S]*\.sort\(\(a, b\) =>\s*String\(b\.lastTimestamp \|\| ""\)\.localeCompare\(\s*String\(a\.lastTimestamp \|\| ""\),\s*\),\s*\)/);
   });
 
   it('includes current context usage in monitor session rows', () => {
@@ -47,8 +47,10 @@ describe('Monitor data refresh', () => {
   it('serves full Codex session detail by session id', () => {
     assert.match(serverSource, /async function getSessionById\(provider,\s*sessionId\)/);
     assert.match(serverSource, /if \(url === ["']\/api\/session["']\) \{/);
-    assert.match(serverSource, /const session = await getSessionById\(["']codex["'],\s*params\.get\(["']id["']\)\);/);
-    assert.match(serverSource, /\.find\(\s*\(?s\)? =>[\s\S]*s\.sessionId === sessionId[\s\S]*s\.sessionType !== ["']assessment["'][\s\S]*!s\.parentSessionId[\s\S]*\)/);
+    assert.match(serverSource, /const sessionId = params\.get\(["']id["']\);/);
+    assert.match(serverSource, /const provider = params\.get\(["']provider["']\);/);
+    assert.match(serverSource, /const session = provider\s*\?\s*await getSessionById\(provider, sessionId\)\s*:\s*\(await getSessionById\(["']codex["'], sessionId\)\)\s*\|\|\s*\(await getSessionById\(["']hermes["'], sessionId\)\);/);
+    assert.match(serverSource, /const matches = sessionFiles[\s\S]*\.filter\([\s\S]*s\.sessionId === sessionId[\s\S]*s\.sessionType !== ["']assessment["'][\s\S]*!s\.parentSessionId/);
     assert.match(serverSource, /res\.end\(JSON\.stringify\(\{ success: true, session \}\)\);/);
   });
 

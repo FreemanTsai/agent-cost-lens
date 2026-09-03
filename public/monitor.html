@@ -619,6 +619,10 @@
               <div class="mono summary-preview">${renderCounts(step.tools)}</div>
               <div class="message-label">Commands</div>
               <div class="mono summary-preview">${renderCounts(step.commands)}</div>
+              <div class="message-label">Skills</div>
+              <div class="mono summary-preview">${renderCounts(step.skills)}</div>
+              <div class="message-label">Files</div>
+              <div class="mono summary-preview">${renderCounts(step.files)}</div>
               ${(step.toolCalls || []).length ? `
               <div class="message-label">Tool Calls</div>
               <div class="message-block mono">${(step.toolCalls || []).map(tc => `${escapeHtml(tc.name || "tool")} ${escapeHtml((tc.arguments || "").slice(0, 160))}`).join("\n")}</div>` : ""}
@@ -642,6 +646,10 @@
               <div class="mono summary-preview">${renderCounts(turn.tools)}</div>
               <div class="message-label">Commands</div>
               <div class="mono summary-preview">${renderCounts(turn.commands)}</div>
+              <div class="message-label">Skills</div>
+              <div class="mono summary-preview">${renderCounts(turn.skills)}</div>
+              <div class="message-label">Files</div>
+              <div class="mono summary-preview">${renderCounts(turn.files)}</div>
               <div class="message-label">Steps</div>
               ${steps.length ? steps.map(renderStep).join("") : '<div class="summary-preview">No step data</div>'}
             </div>

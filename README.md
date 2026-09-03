@@ -15,7 +15,7 @@ Analyze Codex / Code‑based AI agent session logs (`*.jsonl`) — visualize tok
   - **Search** — full‑text search across sessions, with session detail drill‑down (turns, steps, sub‑agents)
   - **Optimize** — Cost Lens scoring for sessions with likely token burn
 - **Monitor** — live dashboard for current rate limits, spend, cache efficiency, and latest sessions
-- **Cost estimation** — per‑model pricing (GPT‑5.5 / 5.4 / 5.4 Mini), accounts for cached vs uncached input tokens
+- **Cost estimation** — per‑model pricing (GPT‑5.6 Sol / Terra / Luna plus GPT‑5.5 / 5.4), accounts for cached, cache-write, and uncached input tokens
 - **No database** — works entirely with static JSON files; no server‑side storage needed
 
 ---
@@ -65,6 +65,7 @@ HOST=0.0.0.0 PORT=8080 node scripts/server.mjs
 ```bash
 node scripts/parse-codex-logs.mjs --date=2026-06-15    # Process a specific date only
 node scripts/parse-codex-logs.mjs --date-only          # Skip optimize analysis, only produce daily JSON
+node scripts/parse-codex-logs.mjs --fill=30             # Rebuild the latest 30 days
 node scripts/parse-codex-logs.mjs --all                # Process all available log files
 ```
 
@@ -123,13 +124,16 @@ Generated reports are written to `public/data/codex-burn*.json`. `public/data/co
 
 ## Pricing
 
-| Model          | Input ($/1M tok) | Cached ($/1M tok) | Output ($/1M tok) |
-|----------------|------------------:|-------------------:|-------------------:|
-| GPT‑5.5        |              5.00 |               0.50 |              30.00 |
-| GPT‑5.4        |              2.50 |               0.25 |              15.00 |
-| GPT‑5.4 Mini   |              0.75 |               0.075 |               4.50 |
+| Model              | Input ($/1M tok) | Cached read ($/1M tok) | Cache write ($/1M tok) | Output ($/1M tok) |
+|--------------------|------------------:|-----------------------:|------------------------:|------------------:|
+| GPT‑5.6 Sol        |              4.00 |                   0.40 |                    5.00 |             20.00 |
+| GPT‑5.6 Terra      |              2.00 |                   0.20 |                    2.50 |             12.00 |
+| GPT‑5.6 Luna       |              0.20 |                   0.02 |                    0.25 |              1.20 |
+| GPT‑5.5            |              5.00 |                   0.50 |                    6.25 |             30.00 |
+| GPT‑5.4            |              2.50 |                   0.25 |                    3.125 |             15.00 |
+| GPT‑5.4 Mini       |              0.75 |                  0.075 |                  0.9375 |              4.50 |
 
-Cache billing: `cache_writes = 1.25 × input_price`, `cache_reads = 0.10 × input_price`.
+Cache writes are billed at `1.25 × input_price`; cached reads at `0.10 × input_price`. `gpt-5.6` is treated as the Sol price.
 
 ---
 
@@ -146,7 +150,7 @@ Session
  ├─ sessionId  — extracted from the rollout filename
  ├─ turns[]    — user→Codex turn groups
  ├─ costUsd    — accumulated per-step cost
- └─ tokens     — input, cachedInput, output, reasoningOutput
+ └─ tokens     — input, cachedInput, cacheWriteInput, output, reasoningOutput
 ```
 
 Daily JSON files are generated per day to avoid memory issues with large datasets.

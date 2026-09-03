@@ -16,6 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
 const publicDir = path.join(rootDir, PUBLIC);
 const codexParserScript = path.join(__dirname, "parse-codex-logs.mjs");
+const hermesParserScript = path.join(__dirname, "parse-hermes-usage.mjs");
 const claudeParserScript = path.join(__dirname, "parse-claude-logs.mjs");
 const CLAUDE_USAGE_FILE = path.join(
   os.homedir(),
@@ -187,7 +188,11 @@ function getRecentDailyFiles(publicDir, provider = "codex") {
 
 function runDateOnlyReparse(provider = "codex") {
   const parserScript =
-    provider === "claude" ? claudeParserScript : codexParserScript;
+    provider === "claude"
+      ? claudeParserScript
+      : provider === "hermes"
+        ? hermesParserScript
+        : codexParserScript;
   return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
@@ -210,19 +215,31 @@ function runDateOnlyReparse(provider = "codex") {
 
 function refreshMonitorDataIfStale() {
   if (monitorReparsePromise) return monitorReparsePromise;
-  const now = Date.now();
-  if (now - lastMonitorReparseAt < MONITOR_REPARSE_INTERVAL_MS)
-    return Promise.resolve(null);
 
-  monitorReparsePromise = runDateOnlyReparse()
-    .then((result) => {
+  const now = Date.now();
+
+  if (now - lastMonitorReparseAt < MONITOR_REPARSE_INTERVAL_MS) {
+    return Promise.resolve(null);
+  }
+
+  monitorReparsePromise = Promise.all([
+    runDateOnlyReparse("codex"),
+
+    runDateOnlyReparse("hermes"),
+  ])
+
+    .then((results) => {
       lastMonitorReparseAt = Date.now();
-      return result;
+
+      return results;
     })
+
     .catch(() => null)
+
     .finally(() => {
       monitorReparsePromise = null;
     });
+
   return monitorReparsePromise;
 }
 
@@ -273,13 +290,15 @@ async function getRecentSessions(provider) {
     .flatMap((d) => d.sessions || [])
     .filter((s) => s.sessionType !== "assessment" && !s.parentSessionId);
   for (const session of sessions) {
-    const firstMsg = session.turns?.find((t) => t.userMessage)?.userMessage || "";
+    const firstMsg =
+      session.turns?.find((t) => t.userMessage)?.userMessage || "";
     const preview = firstMsg
       .replace(/^\[[^\]]+\]\([^)]+\)\s*/, "")
       .slice(0, 40);
     const row = {
+      provider,
       sessionId: session.sessionId,
-      costUsd: session.costUsd,
+      costUsd: Number(session.costUsd || 0),
       contextWindowTokens: session.contextWindowTokens,
       contextUsedTokens: session.contextUsedTokens,
       contextRemainingPercent: session.contextRemainingPercent,
@@ -287,12 +306,27 @@ async function getRecentSessions(provider) {
       preview,
     };
     const existing = sessionMap.get(session.sessionId);
-    if (!existing || row.lastTimestamp > existing.lastTimestamp)
+    if (!existing) {
       sessionMap.set(session.sessionId, row);
+    } else {
+      // ponytail: parent appears on multiple daily files (per-day slices) – sum cost, keep latest timestamp/preview
+      existing.costUsd = Number((existing.costUsd + row.costUsd).toFixed(6));
+      if (row.lastTimestamp > existing.lastTimestamp) {
+        existing.lastTimestamp = row.lastTimestamp;
+        existing.preview = row.preview;
+        existing.contextWindowTokens = row.contextWindowTokens;
+        existing.contextUsedTokens = row.contextUsedTokens;
+        existing.contextRemainingPercent = row.contextRemainingPercent;
+      }
+    }
   }
 
   return [...sessionMap.values()]
-    .sort((a, b) => b.lastTimestamp.localeCompare(a.lastTimestamp))
+    .sort((a, b) =>
+      String(b.lastTimestamp || "").localeCompare(
+        String(a.lastTimestamp || ""),
+      ),
+    )
     .slice(0, 5);
 }
 
@@ -306,17 +340,61 @@ async function getSessionById(provider, sessionId) {
         .catch(() => null),
     ),
   );
-  return (
-    sessionFiles
-      .filter(Boolean)
-      .flatMap((d) => d.sessions || [])
-      .find(
-        (s) =>
-          s.sessionId === sessionId &&
-          s.sessionType !== "assessment" &&
-          !s.parentSessionId,
-      ) || null
+  const matches = sessionFiles
+    .filter(Boolean)
+    .flatMap((d) => d.sessions || [])
+    .filter(
+      (s) =>
+        s.sessionId === sessionId &&
+        s.sessionType !== "assessment" &&
+        !s.parentSessionId,
+    );
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+  // ponytail: multi-day slice – merge turns (concat, sorted) – subagents have overlapping turnIndex
+  const base = { ...matches[0] };
+  const mergedTurns = matches
+    .flatMap((m) => m.turns || [])
+    .sort((a, b) => String(a.timestamp || "").localeCompare(String(b.timestamp || "")));
+  let costUsd = 0;
+  let inputTokens = 0;
+  let cachedInputTokens = 0;
+  let cacheWriteInputTokens = 0;
+  let outputTokens = 0;
+  let reasoningOutputTokens = 0;
+  let totalTokens = 0;
+  let tokenEventCount = 0;
+  for (const m of matches) {
+    costUsd += Number(m.costUsd || 0);
+    inputTokens += Number(m.inputTokens || 0);
+    cachedInputTokens += Number(m.cachedInputTokens || 0);
+    cacheWriteInputTokens += Number(m.cacheWriteInputTokens || 0);
+    outputTokens += Number(m.outputTokens || 0);
+    reasoningOutputTokens += Number(m.reasoningOutputTokens || 0);
+    totalTokens += Number(m.totalTokens || 0);
+    tokenEventCount += Number(m.tokenEventCount || m.calls || 0);
+  }
+  // use latest context
+  const latest = matches.reduce((a, b) =>
+    String(latestSessionTimestamp(b) || "") > String(latestSessionTimestamp(a) || "") ? b : a,
   );
+  return {
+    ...base,
+    costUsd: Number(costUsd.toFixed(6)),
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    effectiveInputTokens: Math.max(0, inputTokens - cachedInputTokens - cacheWriteInputTokens),
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens,
+    tokenEventCount,
+    turns: mergedTurns,
+    contextWindowTokens: latest.contextWindowTokens,
+    contextUsedTokens: latest.contextUsedTokens,
+    contextRemainingPercent: latest.contextRemainingPercent,
+    cacheRatio: inputTokens ? cachedInputTokens / inputTokens : 0,
+  };
 }
 
 async function getProviderSummary(provider) {
@@ -414,7 +492,16 @@ http
           }
           const rateLimits = usageRes.ok ? await usageRes.json() : null;
 
-          const sessions = await getRecentSessions("codex");
+          const codexSessions = await getRecentSessions("codex");
+          const hermesSessions = await getRecentSessions("hermes");
+
+          const sessions = [...codexSessions, ...hermesSessions]
+            .sort((a, b) =>
+              String(b.lastTimestamp || "").localeCompare(
+                String(a.lastTimestamp || ""),
+              ),
+            )
+            .slice(0, 5);
 
           res.writeHead(200, {
             "Content-Type": "application/json; charset=utf-8",
@@ -441,7 +528,14 @@ http
       (async () => {
         try {
           await refreshMonitorDataIfStale();
-          const session = await getSessionById("codex", params.get("id"));
+          const sessionId = params.get("id");
+
+          const provider = params.get("provider");
+
+          const session = provider
+            ? await getSessionById(provider, sessionId)
+            : (await getSessionById("codex", sessionId)) ||
+              (await getSessionById("hermes", sessionId));
           if (!session) {
             res.writeHead(404, {
               "Content-Type": "application/json; charset=utf-8",

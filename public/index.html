@@ -34,8 +34,8 @@
     .period-tab:hover{background:var(--bg-hover);color:var(--text)}
     .period-tab.active{background:var(--accent);color:#0d0d0d;border-color:var(--accent);font-weight:600}
 
-    .header-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border-radius:var(--radius);overflow:hidden;margin:0 0 24px;border:1px solid var(--border)}
-    @media(min-width:640px){.header-bar{grid-template-columns:repeat(8,1fr)}}
+    .header-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border-radius:var(--radius);overflow:hidden;margin:0 0 24px;border:1px solid var(--border)}
+    @media(min-width:640px){.header-bar{grid-template-columns:repeat(9,1fr)}}
     .header-cell{background:var(--bg-card);padding:12px 6px;text-align:center}
     @media(min-width:640px){.header-cell{padding:14px 8px}}
     .header-cell .value{font-size:16px;font-weight:700;line-height:1.3;font-family:var(--font-mono)}
@@ -279,6 +279,7 @@
         <div class="header-cell"><div class="value" id="hdrCacheHit">-</div><div class="label">Cache Hit</div></div>
         <div class="header-cell"><div class="value" id="hdrInput">-</div><div class="label">Input</div></div>
         <div class="header-cell"><div class="value" id="hdrOutput">-</div><div class="label">Output</div></div>
+        <div class="header-cell"><div class="value" id="hdrReasoning">-</div><div class="label">Reasoning</div></div>
         <div class="header-cell"><div class="value" id="hdrCached">-</div><div class="label">Cached</div></div>
         <div class="header-cell"><div class="value" id="hdrTurns">-</div><div class="label">Turns</div></div>
       </div>
@@ -629,9 +630,11 @@
       const totalSessions = sumRows(dailyRows, 'sessions');
       const inputTokens = sumRows(dailyRows, 'inputTokens');
       const cachedTokens = sumRows(dailyRows, 'cachedInputTokens');
+      const cacheWriteTokens = sumRows(dailyRows, 'cacheWriteInputTokens');
       const outputTokens = sumRows(dailyRows, 'outputTokens');
+      const reasoningTokens = sumRows(dailyRows, 'reasoningOutputTokens');
       const totalTurns = sumRows(dailyRows, 'turns');
-      const effectiveInput = inputTokens - cachedTokens;
+      const effectiveInput = Math.max(0, inputTokens - cachedTokens - cacheWriteTokens);
       const cacheRatio = inputTokens > 0 ? cachedTokens / inputTokens : 0;
 
       document.getElementById('hdrCost').textContent = money(totalCost);
@@ -640,8 +643,12 @@
       document.getElementById('hdrCacheHit').textContent = pct(cacheRatio);
       document.getElementById('hdrInput').textContent = fmt.format(effectiveInput);
       document.getElementById('hdrOutput').textContent = fmt.format(outputTokens);
+      const hdrReasoning = document.getElementById('hdrReasoning');
+      if (hdrReasoning) hdrReasoning.textContent = fmt.format(reasoningTokens);
       document.getElementById('hdrCached').textContent = fmt.format(cachedTokens);
       document.getElementById('hdrTurns').textContent = fmt.format(totalTurns);
+      // ponytail: show reasoning share as tooltip
+      if (hdrReasoning) hdrReasoning.title = outputTokens ? `${((reasoningTokens/Math.max(1,outputTokens))*100).toFixed(1)}% of output` : '';
     }
 
     function renderBarPanel(title, rows, columns, options = {}) {
@@ -696,6 +703,7 @@
       return {
         inputTokens: 0,
         cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
         effectiveInputTokens: 0,
         outputTokens: 0,
         reasoningOutputTokens: 0,
@@ -715,7 +723,8 @@
     function addPeriodMetric(target, source) {
       target.inputTokens += Number(source.inputTokens || 0);
       target.cachedInputTokens += Number(source.cachedInputTokens || 0);
-      target.effectiveInputTokens += Number(source.effectiveInputTokens ?? Math.max(0, Number(source.inputTokens || 0) - Number(source.cachedInputTokens || 0)));
+      target.cacheWriteInputTokens += Number(source.cacheWriteInputTokens || 0);
+      target.effectiveInputTokens += Number(source.effectiveInputTokens ?? Math.max(0, Number(source.inputTokens || 0) - Number(source.cachedInputTokens || 0) - Number(source.cacheWriteInputTokens || 0)));
       target.outputTokens += Number(source.outputTokens || 0);
       target.reasoningOutputTokens += Number(source.reasoningOutputTokens || 0);
       target.totalTokens += Number(source.totalTokens || 0);
@@ -730,7 +739,7 @@
     }
 
     function finishPeriodMetric(metric) {
-      metric.effectiveInputTokens = metric.inputTokens - metric.cachedInputTokens;
+      metric.effectiveInputTokens = Math.max(0, metric.inputTokens - metric.cachedInputTokens - metric.cacheWriteInputTokens);
       metric.cacheRatio = metric.inputTokens > 0 ? metric.cachedInputTokens / metric.inputTokens : 0;
       metric.costUsd = Number((metric.costUsd || 0).toFixed(6));
       return metric;
@@ -811,15 +820,15 @@
       const skillMap = {}; const modelMap = {}; const toolsAccum = {}; const commandsAccum = {}; const skillsAccum = {};
 
       for (const data of files) {
-        const day = data.days?.[0] || {};
         const dayMetric = createPeriodMetric({
           date: data.targetDate,
-          inputTokens: Number(day.inputTokens || 0),
-          cachedInputTokens: Number(day.cachedInputTokens || 0),
-          outputTokens: Number(day.outputTokens || 0),
-          reasoningOutputTokens: Number(day.reasoningOutputTokens || 0),
-          totalTokens: Number(day.totalTokens || 0),
-          calls: Number(day.tokenEventCount || 0),
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          cacheWriteInputTokens: 0,
+          outputTokens: 0,
+          reasoningOutputTokens: 0,
+          totalTokens: 0,
+          calls: 0,
           tools: {},
           commands: {},
           skills: {},
@@ -842,6 +851,7 @@
             calls: Number(session.calls || session.tokenEventCount || 0),
             inputTokens: Number(session.inputTokens || 0),
             cachedInputTokens: Number(session.cachedInputTokens || 0),
+            cacheWriteInputTokens: Number(session.cacheWriteInputTokens || 0),
             outputTokens: Number(session.outputTokens || 0),
             reasoningOutputTokens: Number(session.reasoningOutputTokens || 0),
             totalTokens: Number(session.totalTokens || 0),
@@ -863,6 +873,7 @@
               turns: 1,
               inputTokens: Number(turn.inputTokens || 0),
               cachedInputTokens: Number(turn.cachedInputTokens || 0),
+              cacheWriteInputTokens: Number(turn.cacheWriteInputTokens || 0),
               outputTokens: Number(turn.outputTokens || 0),
               reasoningOutputTokens: Number(turn.reasoningOutputTokens || 0),
               totalTokens: Number(turn.totalTokens || 0),
@@ -892,11 +903,29 @@
               modelMap[modelName].costUsd += Number(step.costUsd || 0);
               modelMap[modelName].inputTokens += step.inputTokens || 0;
               modelMap[modelName].cachedInputTokens += step.cachedInputTokens || 0;
+              modelMap[modelName].cacheWriteInputTokens += step.cacheWriteInputTokens || 0;
               modelMap[modelName].outputTokens += step.outputTokens || 0;
+              modelMap[modelName].reasoningOutputTokens += step.reasoningOutputTokens || 0;
             }
           }
 
-          sessionMap[session.sessionId] = finishPeriodMetric(sessionMetric);
+          // ponytail: multi-day session appears on multiple daily files – merge, don't overwrite
+          if (!sessionMap[session.sessionId]) {
+            sessionMap[session.sessionId] = finishPeriodMetric(sessionMetric);
+          } else {
+            // merge per-day slices (e.g., long session 019fdc86)
+            const prev = sessionMap[session.sessionId];
+            addPeriodMetric(prev, sessionMetric);
+            // keep earliest projectName/date etc.
+            prev.turns = (prev.turns || 0) + (sessionMetric.turns || 0);
+            prev.calls = (prev.calls || 0) + (sessionMetric.calls || 0);
+            for (const [k,v] of Object.entries(sessionMetric.tools||{})) prev.tools[k] = (prev.tools[k]||0)+v;
+            for (const [k,v] of Object.entries(sessionMetric.commands||{})) prev.commands[k] = (prev.commands[k]||0)+v;
+            for (const [k,v] of Object.entries(sessionMetric.skills||{})) prev.skills[k] = (prev.skills[k]||0)+v;
+            for (const [k,v] of Object.entries(sessionMetric.files||{})) prev.files[k] = (prev.files[k]||0)+v;
+            // costUsd already merged via addPeriodMetric, finalize
+            finishPeriodMetric(prev);
+          }
         }
         addCountMap(toolsAccum, dayMetric.tools);
         addCountMap(commandsAccum, dayMetric.commands);
@@ -950,7 +979,8 @@
         { label: 'Model', key: 'modelName', className: 'bar-label', type: 'label' },
         { type: 'bar' },
         { label: 'Cost', render: row => money(row.costUsd), className: 'bar-num cost' },
-        { label: 'Count', render: row => fmt.format(row.count || 0) },
+        { label: 'Output', render: row => fmt.format(row.outputTokens || 0) },
+        { label: 'Reasoning', render: row => fmt.format(row.reasoningOutputTokens || 0) },
       ];
       document.getElementById('panelModel').innerHTML = renderBarPanel('By Model', period.byModel || [], modelCols, { maxBy: 'costUsd' });
 
@@ -1068,7 +1098,15 @@
             commands: s.commands,
             skills: s.skills,
             files: s.files,
-            turns: (s.turns || []).map(turn => ({ userMessage: turn.userMessage, tools: turn.tools, commands: turn.commands })),
+            turns: (s.turns || []).map(turn => ({
+              userMessage: turn.userMessage,
+              commentary: turn.commentary,
+              tools: turn.tools,
+              commands: turn.commands,
+              skills: turn.skills,
+              files: turn.files,
+              steps: (turn.steps || []).map(step => ({ message: step.message, toolCalls: step.toolCalls, commentary: step.commentary })),
+            })),
           }).toLowerCase();
           return text.includes(q);
         })
@@ -1115,8 +1153,51 @@
     }
 
     window.showSession = function(id) {
-      const session = (searchSessions.length ? searchSessions : (appData.sessions || [])).find(s => s.sessionId === id);
-      if (!session) return;
+      const all = searchSessions.length ? searchSessions : (appData.sessions || []);
+      const matches = all.filter(s => s.sessionId === id);
+      if (!matches.length) return;
+      let session = matches[0];
+      if (matches.length > 1) {
+        const turnMap = new Map();
+        for (const m of matches) for (const t of (m.turns || [])) if (!turnMap.has(t.turnIndex)) turnMap.set(t.turnIndex, t);
+        const mergedTurns = Array.from(turnMap.values()).sort((a,b)=>(a.turnIndex||0)-(b.turnIndex||0));
+        const sum = (k) => matches.reduce((s,m)=>s+Number(m[k]||0),0);
+        const mergeMap = (k) => {
+          const o={}; for (const m of matches) for (const [kk,v] of Object.entries(m[k]||{})) o[kk]=(o[kk]||0)+Number(v||0);
+          return o;
+        };
+        const inputTokens = sum('inputTokens');
+        const cachedInputTokens = sum('cachedInputTokens');
+        // ponytail: merge across daily slices so multi-day session shows full history (was truncated to single date)
+        const mergeModelCosts = () => {
+          const o={}; for (const m of matches) for (const [model, v] of Object.entries(m.modelCosts||{})) {
+            if (!o[model]) o[model]={count:0,costUsd:0,inputTokens:0,cachedInputTokens:0,cacheWriteInputTokens:0,outputTokens:0,reasoningOutputTokens:0};
+            o[model].count+=Number(v.count||0); o[model].costUsd+=Number(v.costUsd||0);
+            o[model].inputTokens+=Number(v.inputTokens||0); o[model].cachedInputTokens+=Number(v.cachedInputTokens||0);
+            o[model].cacheWriteInputTokens+=Number(v.cacheWriteInputTokens||0); o[model].outputTokens+=Number(v.outputTokens||0); o[model].reasoningOutputTokens+=Number(v.reasoningOutputTokens||0);
+          } return o;
+        };
+        session = {
+          ...session,
+          inputTokens,
+          cachedInputTokens,
+          cacheWriteInputTokens: sum('cacheWriteInputTokens'),
+          outputTokens: sum('outputTokens'),
+          reasoningOutputTokens: sum('reasoningOutputTokens'),
+          totalTokens: sum('totalTokens'),
+          tokenEventCount: sum('tokenEventCount'),
+          effectiveInputTokens: sum('effectiveInputTokens'),
+          costUsd: matches.reduce((s,m)=>s+Number(m.costUsd||0),0),
+          cacheRatio: inputTokens ? cachedInputTokens / inputTokens : 0,
+          turns: mergedTurns,
+          tools: mergeMap('tools'),
+          commands: mergeMap('commands'),
+          skills: mergeMap('skills'),
+          files: mergeMap('files'),
+          models: mergeMap('models'),
+          modelCosts: mergeModelCosts(),
+        };
+      }
 
       const toolPills = topEntries(session.tools, 20).map(([k, v]) => `<span class="pill">${escapeHtml(k)} ${fmt.format(v)}</span>`).join("") || "-";
       const commandPills = topEntries(session.commands, 20).map(([k, v]) => `<span class="pill">${escapeHtml(k)} ${fmt.format(v)}</span>`).join("") || "-";
@@ -1130,12 +1211,24 @@
           <div class="stats-item"><div class="stats-label">Cost</div><div class="stats-value cost">${money(session.costUsd || 0)}</div></div>
           <div class="stats-item"><div class="stats-label">Calls</div><div class="stats-value">${fmt.format(session.tokenEventCount || 0)}</div></div>
           <div class="stats-item"><div class="stats-label">Cache Hit</div><div class="stats-value">${pct(session.cacheRatio || 0)}</div></div>
-          <div class="stats-item"><div class="stats-label">Input (Eff.)</div><div class="stats-value">${fmt.format((session.effectiveInputTokens || Math.max(0, (session.inputTokens || 0) - (session.cachedInputTokens || 0))))}</div></div>
+          <div class="stats-item"><div class="stats-label">Input (Eff.)</div><div class="stats-value">${fmt.format((session.effectiveInputTokens || Math.max(0, (session.inputTokens || 0) - (session.cachedInputTokens || 0) - (session.cacheWriteInputTokens || 0))))}</div></div>
           <div class="stats-item"><div class="stats-label">Output</div><div class="stats-value">${fmt.format(session.outputTokens || 0)}</div></div>
+          <div class="stats-item"><div class="stats-label">Reasoning</div><div class="stats-value">${fmt.format(session.reasoningOutputTokens || 0)}</div></div>
           <div class="stats-item"><div class="stats-label">Cached</div><div class="stats-value">${fmt.format(session.cachedInputTokens || 0)}</div></div>
           <div class="stats-item"><div class="stats-label">Turns</div><div class="stats-value">${fmt.format((session.turns || []).length)}</div></div>
         </div>
         ${session.parentSessionId ? `<div style="margin:-8px 0 12px;font-size:13px;color:var(--text-secondary)">Parent: <a href="#" onclick="showSession('${escapeHtml(session.parentSessionId)}');return false">${escapeHtml(session.parentSessionId.slice(0, 12))}…</a></div>` : ''}
+        ${(() => {
+          const subs = (session.turns || []).filter(t => t.isSubagent);
+          if (!subs.length) return '';
+          const distinct = new Set(subs.map(t => t.subagentSessionId || t.agentNickname).filter(Boolean)).size;
+          const subCost = subs.reduce((s,t)=>s+(t.costUsd||0),0);
+          const subOut = subs.reduce((s,t)=>s+(t.outputTokens||0),0);
+          const subReason = subs.reduce((s,t)=>s+(t.reasoningOutputTokens||0),0);
+          const parentTurns = (session.turns || []).filter(t => !t.isSubagent);
+          const parentCost = parentTurns.reduce((s,t)=>s+(t.costUsd||0),0);
+          return `<div style="margin:-4px 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(52,211,153,0.04);font-size:12px;color:var(--text-secondary)"><strong style="color:var(--text)">Aggregated (parent + ${distinct} subagents)</strong> · Total ${money(session.costUsd||0)} (parent ${money(parentCost)} + subagents ${money(subCost)}) · Out ${fmt.format(session.outputTokens||0)} (R ${fmt.format(session.reasoningOutputTokens||0)}) — subagents Out ${fmt.format(subOut)} R ${fmt.format(subReason)}</div>`;
+        })()}
         <h3>Tools</h3><div>${toolPills}</div>
         <h3>Commands</h3><div>${commandPills}</div>
         <h3>Skills</h3><div>${skillPills}</div>
@@ -1276,7 +1369,7 @@
                 <div class="summary-preview">User: ${escapeHtml(userPreview)}</div>
                 <div class="summary-preview">${escapeHtml(getAssistantLabel())}: ${escapeHtml(assistantPreview)}</div>
               </div>
-              <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Output ${fmt.format(turn.outputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
+              <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Out ${fmt.format(turn.outputTokens || 0)} R ${fmt.format(turn.reasoningOutputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
             </div>
           </summary>
           <div class="turn-section">
@@ -1309,12 +1402,14 @@
       if (!turns || !turns.length) return '';
       const first = turns[0];
       const totalCost = turns.reduce((s, t) => s + (t.costUsd || 0), 0);
+      const totalOutput = turns.reduce((s, t) => s + (t.outputTokens || 0), 0);
+      const totalReasoning = turns.reduce((s, t) => s + (t.reasoningOutputTokens || 0), 0);
       const baseCtx = first.baseContextTokens || 0;
       const nick = first.agentNickname || 'Subagent';
       const groupInner = turns.map(t => renderSubagentTurn(t)).join('');
       return `
         <details class="subagent-group" open>
-          <summary>Subagent: ${escapeHtml(nick)} (${turns.length} turn${turns.length > 1 ? 's' : ''})${baseCtx ? ` · Base: ${fmt.format(baseCtx)} tokens` : ''} · Total: ${money(totalCost)}</summary>
+          <summary>Subagent: ${escapeHtml(nick)} (${turns.length} turn${turns.length > 1 ? 's' : ''})${baseCtx ? ` · Base: ${fmt.format(baseCtx)} tokens` : ''} · Out ${fmt.format(totalOutput)} · R ${fmt.format(totalReasoning)} · Total: ${money(totalCost)}</summary>
           ${groupInner}
         </details>`;
     }
@@ -1337,7 +1432,7 @@
                 <div class="summary-preview">User: ${escapeHtml(userPreview)}</div>
                 <div class="summary-preview">${escapeHtml(getAssistantLabel())}: ${escapeHtml(assistantPreview)}</div>
               </div>
-              <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Output ${fmt.format(turn.outputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
+              <div class="summary-meta">Steps ${fmt.format(stepCount)} | Cost ${money(turn.costUsd || 0)} | Cache ${pct(turn.cacheRatio || 0)} | Out ${fmt.format(turn.outputTokens || 0)} R ${fmt.format(turn.reasoningOutputTokens || 0)} | ${escapeHtml(turn.model || '')}</div>
             </div>
           </summary>
           <div class="turn-section">
@@ -1413,7 +1508,7 @@
         const commands = topEntries(step.commands, 5).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
         const skills = topEntries(step.skills, 5).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join(", ") || "-";
         const files = topEntries(step.files, 5).map(([k, v]) => `${escapeHtml(k)} ${fmt.format(v)}`).join("<br>") || "-";
-        const effective = step.effectiveInputTokens ?? Math.max(0, (step.inputTokens || 0) - (step.cachedInputTokens || 0));
+        const effective = step.effectiveInputTokens ?? Math.max(0, (step.inputTokens || 0) - (step.cachedInputTokens || 0) - (step.cacheWriteInputTokens || 0));
         const messagePreview = previewText(step.message, 180);
         const toolPreview = (step.toolCalls || []).map(tc => tc.name).join(', ').slice(0, 80);
         const hasCommentary = step.commentary && step.commentary.length ? ` | Commentary ${step.commentary.length}` : '';
